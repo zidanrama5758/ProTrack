@@ -56,14 +56,30 @@ def upload_foto(file_bytes, file_name):
 def baca_sheet(nama_sheet):
     return conn.read(worksheet=nama_sheet, ttl=0)
 
+# ==================== HELPER NORMALISASI NAMA PROYEK ====================
+def normalisasi(nama):
+    """Samakan format nama proyek: strip, hilangkan spasi ganda, casefold."""
+    if nama is None:
+        return ""
+    return " ".join(str(nama).strip().split()).casefold()
+
+def filter_proyek(df, nama_proyek):
+    """Filter DataFrame berdasarkan kolom 'proyek' pakai normalisasi nama."""
+    if df.empty or "proyek" not in df.columns:
+        return df.iloc[0:0]
+    target = normalisasi(nama_proyek)
+    mask = df["proyek"].apply(lambda x: normalisasi(x) == target)
+    return df[mask]
+
 # ==================== HELPER OPSI A + C ====================
 def cari_baris_proyek(nama_proyek):
     """Return nomor baris (1-based) proyek di sheet 'proyek', None kalau tidak ada."""
     client = get_gspread_client()
     sheet = client.open_by_url(SPREADSHEET_URL).worksheet("proyek")
     col_nama = sheet.col_values(1)  # kolom A = 'nama'
+    target = normalisasi(nama_proyek)
     for i, val in enumerate(col_nama, start=1):
-        if val == nama_proyek:
+        if normalisasi(val) == target:
             return i
     return None
 
@@ -74,7 +90,7 @@ def update_proyek(nama_proyek, realisasi=None, progres=None):
         return
     client = get_gspread_client()
     sheet = client.open_by_url(SPREADSHEET_URL).worksheet("proyek")
-    headers = sheet.row_values(1)
+    headers = [h.strip() for h in sheet.row_values(1)]
     if realisasi is not None and "realisasi" in headers:
         kol = headers.index("realisasi") + 1
         sheet.update_cell(baris, kol, float(realisasi))
@@ -85,9 +101,9 @@ def update_proyek(nama_proyek, realisasi=None, progres=None):
 def hitung_realisasi_proyek(nama_proyek):
     """Total pembelian material untuk 1 proyek."""
     df = baca_sheet("material_masuk")
-    if df.empty or "proyek" not in df.columns or "total" not in df.columns:
+    if df.empty or "total" not in df.columns:
         return 0.0
-    df_filter = df[df["proyek"] == nama_proyek]
+    df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
         return 0.0
     return float(pd.to_numeric(df_filter["total"], errors="coerce").fillna(0).sum())
@@ -95,9 +111,9 @@ def hitung_realisasi_proyek(nama_proyek):
 def hitung_progres_proyek(nama_proyek):
     """Progres terbaru (max) dari laporan_harian untuk 1 proyek."""
     df = baca_sheet("laporan_harian")
-    if df.empty or "proyek" not in df.columns or "progres" not in df.columns:
+    if df.empty or "progres" not in df.columns:
         return 0.0
-    df_filter = df[df["proyek"] == nama_proyek]
+    df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
         return 0.0
     return float(pd.to_numeric(df_filter["progres"], errors="coerce").fillna(0).max())
@@ -149,27 +165,14 @@ def dashboard_owner():
     if proyek_pilihan == "📊 Semua Proyek":
         st.header("📊 Ringkasan Semua Proyek")
 
-        # Hitung realisasi per proyek dari material_masuk
         df_masuk = baca_sheet("material_masuk")
         df_lap = baca_sheet("laporan_harian")
 
         realisasi_list = []
         progres_list = []
         for nama_p in df['nama'].tolist():
-            if not df_masuk.empty and "proyek" in df_masuk.columns and "total" in df_masuk.columns:
-                r = pd.to_numeric(
-                    df_masuk[df_masuk["proyek"] == nama_p]["total"],
-                    errors="coerce"
-                ).fillna(0).sum()
-            else:
-                r = 0
-            if not df_lap.empty and "proyek" in df_lap.columns and "progres" in df_lap.columns:
-                p = pd.to_numeric(
-                    df_lap[df_lap["proyek"] == nama_p]["progres"],
-                    errors="coerce"
-                ).fillna(0).max()
-            else:
-                p = 0
+            r = hitung_realisasi_proyek(nama_p)
+            p = hitung_progres_proyek(nama_p)
             realisasi_list.append(r)
             progres_list.append(p)
 
@@ -210,7 +213,7 @@ def dashboard_owner():
         st.header("📈 Kurva S")
         df_kurva = baca_sheet("kurva_s")
         if not df_kurva.empty:
-            df_filter = df_kurva[df_kurva['proyek'] == proyek_pilihan]
+            df_filter = filter_proyek(df_kurva, proyek_pilihan)
             if not df_filter.empty:
                 fig, ax = plt.subplots(figsize=(12, 5))
                 ax.plot(df_filter['minggu'], df_filter['rencana'], label='Rencana', color='blue', marker='o')
@@ -228,7 +231,7 @@ def dashboard_owner():
         st.header("📝 Laporan Harian Pengawas")
         df_laporan = baca_sheet("laporan_harian")
         if not df_laporan.empty:
-            df_filter = df_laporan[df_laporan['proyek'] == proyek_pilihan]
+            df_filter = filter_proyek(df_laporan, proyek_pilihan)
             if not df_filter.empty:
                 st.dataframe(df_filter, use_container_width=True)
                 st.caption(f"Total: {len(df_filter)} laporan")
@@ -241,7 +244,7 @@ def dashboard_owner():
         st.header("📸 Foto Progres")
         df_foto = baca_sheet("foto_progres")
         if not df_foto.empty:
-            df_filter = df_foto[df_foto['proyek'] == proyek_pilihan]
+            df_filter = filter_proyek(df_foto, proyek_pilihan)
             if not df_filter.empty:
                 for _, row in df_filter.iterrows():
                     st.markdown(f"**{row['tanggal']}** — {row['keterangan']}")
@@ -374,7 +377,7 @@ def dashboard_admin():
     with st.expander("📋 RAB Detail"):
         df_rab_all = baca_sheet("rab_detail")
         if not df_rab_all.empty:
-            df_filter = df_rab_all[df_rab_all['proyek'] == proyek_pilihan]
+            df_filter = filter_proyek(df_rab_all, proyek_pilihan)
             st.dataframe(df_filter, use_container_width=True)
             st.caption(f"Total: {len(df_filter)} baris")
         else:
@@ -383,7 +386,7 @@ def dashboard_admin():
     with st.expander("📈 Kurva S"):
         df_kurva_all = baca_sheet("kurva_s")
         if not df_kurva_all.empty:
-            df_filter = df_kurva_all[df_kurva_all['proyek'] == proyek_pilihan]
+            df_filter = filter_proyek(df_kurva_all, proyek_pilihan)
             st.dataframe(df_filter, use_container_width=True)
             st.caption(f"Total: {len(df_filter)} baris")
         else:
@@ -429,7 +432,7 @@ def dashboard_pengawas():
     st.header(f"📋 Riwayat Laporan: {proyek_pilihan}")
     df_laporan = baca_sheet("laporan_harian")
     if not df_laporan.empty:
-        df_filter = df_laporan[df_laporan['proyek'] == proyek_pilihan]
+        df_filter = filter_proyek(df_laporan, proyek_pilihan)
         if not df_filter.empty:
             st.dataframe(df_filter, use_container_width=True)
             st.caption(f"Total: {len(df_filter)} laporan")
@@ -470,7 +473,7 @@ def dashboard_pengawas():
     st.header(f"📸 Riwayat Foto: {proyek_pilihan}")
     df_foto = baca_sheet("foto_progres")
     if not df_foto.empty:
-        df_filter = df_foto[df_foto['proyek'] == proyek_pilihan]
+        df_filter = filter_proyek(df_foto, proyek_pilihan)
         if not df_filter.empty:
             for _, row in df_filter.iterrows():
                 st.markdown(f"**{row['tanggal']}** — {row['keterangan']}")
@@ -535,7 +538,7 @@ def dashboard_logistik():
     st.header("📋 Riwayat Pembelian")
     df_masuk = baca_sheet("material_masuk")
     if not df_masuk.empty:
-        df_filter = df_masuk[df_masuk['proyek'] == proyek_pilihan]
+        df_filter = filter_proyek(df_masuk, proyek_pilihan)
         st.dataframe(df_filter, use_container_width=True)
         if "total" in df_filter.columns and not df_filter.empty:
             total_pembelian = pd.to_numeric(df_filter["total"], errors="coerce").fillna(0).sum()
