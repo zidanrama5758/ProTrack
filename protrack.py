@@ -56,7 +56,7 @@ def upload_foto(file_bytes, file_name):
 def baca_sheet(nama_sheet):
     return conn.read(worksheet=nama_sheet, ttl=0)
 
-# ==================== HELPER NORMALISASI NAMA PROYEK ====================
+# ==================== HELPER NORMALISASI ====================
 def normalisasi(nama):
     """Samakan format nama proyek: strip, hilangkan spasi ganda, casefold."""
     if nama is None:
@@ -71,12 +71,17 @@ def filter_proyek(df, nama_proyek):
     mask = df["proyek"].apply(lambda x: normalisasi(x) == target)
     return df[mask]
 
+def to_angka(series):
+    """Konversi Series apapun (string dengan titik/koma/spasi) jadi float."""
+    bersih = series.astype(str).str.replace(r"[^\d.-]", "", regex=True)
+    return pd.to_numeric(bersih, errors="coerce").fillna(0)
+
 # ==================== HELPER OPSI A + C ====================
 def cari_baris_proyek(nama_proyek):
     """Return nomor baris (1-based) proyek di sheet 'proyek', None kalau tidak ada."""
     client = get_gspread_client()
     sheet = client.open_by_url(SPREADSHEET_URL).worksheet("proyek")
-    col_nama = sheet.col_values(1)  # kolom A = 'nama'
+    col_nama = sheet.col_values(1)
     target = normalisasi(nama_proyek)
     for i, val in enumerate(col_nama, start=1):
         if normalisasi(val) == target:
@@ -106,7 +111,7 @@ def hitung_realisasi_proyek(nama_proyek):
     df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
         return 0.0
-    return float(pd.to_numeric(df_filter["total"], errors="coerce").fillna(0).sum())
+    return float(to_angka(df_filter["total"]).sum())
 
 def hitung_progres_proyek(nama_proyek):
     """Progres terbaru (max) dari laporan_harian untuk 1 proyek."""
@@ -116,7 +121,7 @@ def hitung_progres_proyek(nama_proyek):
     df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
         return 0.0
-    return float(pd.to_numeric(df_filter["progres"], errors="coerce").fillna(0).max())
+    return float(to_angka(df_filter["progres"]).max())
 
 # ==================== SESSION STATE ====================
 if 'role' not in st.session_state:
@@ -165,16 +170,11 @@ def dashboard_owner():
     if proyek_pilihan == "📊 Semua Proyek":
         st.header("📊 Ringkasan Semua Proyek")
 
-        df_masuk = baca_sheet("material_masuk")
-        df_lap = baca_sheet("laporan_harian")
-
         realisasi_list = []
         progres_list = []
         for nama_p in df['nama'].tolist():
-            r = hitung_realisasi_proyek(nama_p)
-            p = hitung_progres_proyek(nama_p)
-            realisasi_list.append(r)
-            progres_list.append(p)
+            realisasi_list.append(hitung_realisasi_proyek(nama_p))
+            progres_list.append(hitung_progres_proyek(nama_p))
 
         df['realisasi'] = realisasi_list
         df['progres'] = progres_list
@@ -200,7 +200,6 @@ def dashboard_owner():
         st.header(f"📊 Proyek: {proyek_pilihan}")
         df_proyek = df[df['nama'] == proyek_pilihan].iloc[0]
 
-        # === OPSI A + C: hitung realisasi & progres dari sumber ===
         realisasi_hitung = hitung_realisasi_proyek(proyek_pilihan)
         progres_hitung = hitung_progres_proyek(proyek_pilihan)
 
@@ -420,15 +419,11 @@ def dashboard_pengawas():
                 "tanggal": str(tanggal), "proyek": proyek_pilihan,
                 "progres": progres, "kendala": kendala, "cuaca": cuaca
             })
-
-            # === OPSI A: update progres proyek otomatis ===
             progres_terbaru = hitung_progres_proyek(proyek_pilihan)
             update_proyek(proyek_pilihan, progres=progres_terbaru)
-
             st.success("✅ Laporan berhasil dikirim!")
             st.rerun()
 
-    # ==================== RIWAYAT LAPORAN HARIAN ====================
     st.header(f"📋 Riwayat Laporan: {proyek_pilihan}")
     df_laporan = baca_sheet("laporan_harian")
     if not df_laporan.empty:
@@ -525,11 +520,8 @@ def dashboard_logistik():
                 "harga_satuan": harga_satuan, "total": total,
                 "supplier": supplier
             })
-
-            # === OPSI C: update realisasi proyek otomatis ===
             total_realisasi = hitung_realisasi_proyek(proyek_pilihan)
             update_proyek(proyek_pilihan, realisasi=total_realisasi)
-
             st.success("✅ Data pembelian berhasil disimpan!")
             st.rerun()
 
@@ -541,7 +533,7 @@ def dashboard_logistik():
         df_filter = filter_proyek(df_masuk, proyek_pilihan)
         st.dataframe(df_filter, use_container_width=True)
         if "total" in df_filter.columns and not df_filter.empty:
-            total_pembelian = pd.to_numeric(df_filter["total"], errors="coerce").fillna(0).sum()
+            total_pembelian = to_angka(df_filter["total"]).sum()
         else:
             total_pembelian = 0
         st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
