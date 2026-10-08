@@ -174,21 +174,6 @@ def dashboard_owner():
         else:
             st.info("Belum ada foto.")
 
-        # ==================== RIWAYAT PEMBELIAN ====================
-        st.header("📦 Riwayat Pembelian Material")
-        df_masuk = baca_sheet("material_masuk")
-        if not df_masuk.empty:
-            df_filter = df_masuk[df_masuk['proyek'] == proyek_pilihan]
-            if not df_filter.empty:
-                st.dataframe(df_filter, use_container_width=True)
-                st.caption(f"Total: {len(df_filter)} pembelian")
-                total_pembelian = df_filter['total'].sum()
-                st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
-            else:
-                st.info("Belum ada pembelian material.")
-        else:
-            st.info("Belum ada pembelian material.")
-
 # ==================== DASHBOARD ADMIN ====================
 def dashboard_admin():
     st.title("🛠️ Dashboard Admin")
