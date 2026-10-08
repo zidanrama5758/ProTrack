@@ -128,6 +128,7 @@ def dashboard_owner():
         col2.metric("Realisasi", f"Rp {df_proyek['realisasi']:,.0f}")
         col3.metric("Progres", f"{df_proyek['progres']}%")
 
+        # ==================== KURVA S ====================
         st.header("📈 Kurva S")
         df_kurva = baca_sheet("kurva_s")
         if not df_kurva.empty:
@@ -145,6 +146,20 @@ def dashboard_owner():
             else:
                 st.info("Belum ada Kurva S untuk proyek ini.")
 
+        # ==================== LAPORAN HARIAN ====================
+        st.header("📝 Laporan Harian Pengawas")
+        df_laporan = baca_sheet("laporan_harian")
+        if not df_laporan.empty:
+            df_filter = df_laporan[df_laporan['proyek'] == proyek_pilihan]
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} laporan")
+            else:
+                st.info("Belum ada laporan harian.")
+        else:
+            st.info("Belum ada laporan harian.")
+
+        # ==================== FOTO PROGRES ====================
         st.header("📸 Foto Progres")
         df_foto = baca_sheet("foto_progres")
         if not df_foto.empty:
@@ -158,6 +173,21 @@ def dashboard_owner():
                 st.info("Belum ada foto untuk proyek ini.")
         else:
             st.info("Belum ada foto.")
+
+        # ==================== RIWAYAT PEMBELIAN ====================
+        st.header("📦 Riwayat Pembelian Material")
+        df_masuk = baca_sheet("material_masuk")
+        if not df_masuk.empty:
+            df_filter = df_masuk[df_masuk['proyek'] == proyek_pilihan]
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} pembelian")
+                total_pembelian = df_filter['total'].sum()
+                st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+            else:
+                st.info("Belum ada pembelian material.")
+        else:
+            st.info("Belum ada pembelian material.")
 
 # ==================== DASHBOARD ADMIN ====================
 def dashboard_admin():
@@ -327,6 +357,19 @@ def dashboard_pengawas():
             st.success("✅ Laporan berhasil dikirim!")
             st.rerun()
 
+    # ==================== RIWAYAT LAPORAN HARIAN ====================
+    st.header(f"📋 Riwayat Laporan: {proyek_pilihan}")
+    df_laporan = baca_sheet("laporan_harian")
+    if not df_laporan.empty:
+        df_filter = df_laporan[df_laporan['proyek'] == proyek_pilihan]
+        if not df_filter.empty:
+            st.dataframe(df_filter, use_container_width=True)
+            st.caption(f"Total: {len(df_filter)} laporan")
+        else:
+            st.info("Belum ada laporan harian.")
+    else:
+        st.info("Belum ada laporan harian.")
+
     st.divider()
 
     st.header("📸 Upload Foto Progres")
@@ -339,7 +382,6 @@ def dashboard_pengawas():
             with st.spinner("Mengupload foto..."):
                 try:
                     file_bytes = foto.read()
-                    # Hapus ekstensi, ganti spasi dengan dash
                     nama_file = foto.name.rsplit('.', 1)[0]
                     file_name = f"{proyek_pilihan}_{tanggal_foto}_{nama_file}".replace(" ", "-").replace("_", "-")
                     link_foto = upload_foto(file_bytes, file_name)
@@ -422,6 +464,8 @@ def dashboard_logistik():
     if not df_masuk.empty:
         df_filter = df_masuk[df_masuk['proyek'] == proyek_pilihan]
         st.dataframe(df_filter, use_container_width=True)
+        total_pembelian = df_filter['total'].sum() if not df_filter.empty else 0
+        st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
     else:
         st.info("Belum ada pembelian.")
 
