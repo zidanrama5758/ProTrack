@@ -339,7 +339,9 @@ def dashboard_pengawas():
             with st.spinner("Mengupload foto..."):
                 try:
                     file_bytes = foto.read()
-                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{foto.name}".replace(" ", "_")
+                    # Hapus ekstensi dari public_id
+                    nama_file = foto.name.rsplit('.', 1)[0]
+                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{nama_file}".replace(" ", "_")
                     link_foto = upload_foto(file_bytes, file_name)
                     tambah_baris_gspread("foto_progres", {
                         "tanggal": str(tanggal_foto),
