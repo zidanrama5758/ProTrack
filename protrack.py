@@ -609,9 +609,11 @@ def dashboard_logistik():
     df_masuk = baca_sheet("material_masuk")
 
     st.write("=== DEBUG ===")
-    st.write("Tipe df_masuk:", type(df_masuk))
     st.write("Kolom df_masuk:", df_masuk.columns.tolist())
-    st.write("Dtypes:", df_masuk.dtypes.to_dict() if not df_masuk.empty else "kosong")
+    st.write(
+        "Dtypes:",
+        df_masuk.dtypes.astype(str).to_dict() if not df_masuk.empty else "kosong",
+    )
 
     df_filter = filter_proyek(df_masuk, proyek_pilihan)
     st.write("Jumlah baris setelah filter:", len(df_filter))
