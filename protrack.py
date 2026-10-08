@@ -5,10 +5,10 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import gspread
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
 import json
+import cloudinary
+import cloudinary.uploader
 
 st.set_page_config(page_title="ProTrack", layout="wide", page_icon="🏗️")
 
@@ -17,13 +17,11 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # ==================== KONFIGURASI ====================
 JSON_FILE = "protrack-510911-15c05e7c04aa.json"
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2JOsxDYA4m2kWiGXiuzQ/edit"
-DRIVE_FOLDER_ID = "1YOcQxpcpLrYLR6JvKty9n3g6gNTpVlu-"
 
 def get_credentials():
     """Ambil credentials dari Streamlit secrets atau file JSON."""
     if "gcp_service_account" in st.secrets:
         creds_dict = dict(st.secrets["gcp_service_account"])
-        # Perbaiki private_key kalau ada double backslash
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         return creds_dict
     else:
@@ -41,30 +39,19 @@ def tambah_baris_gspread(nama_sheet, baris_baru):
     sheet = client.open_by_url(SPREADSHEET_URL).worksheet(nama_sheet)
     sheet.append_row(list(baris_baru.values()))
 
-def upload_foto_ke_drive(file_bytes, file_name):
-    """Upload foto ke Google Drive, return link."""
-    SCOPES = ['https://www.googleapis.com/auth/drive']
-    creds_dict = get_credentials()
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    drive_service = build('drive', 'v3', credentials=creds)
-
-    file_metadata = {
-        'name': file_name,
-        'parents': [DRIVE_FOLDER_ID]
-    }
-    media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype='image/jpeg', resumable=True)
-    file = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id, webViewLink'
-    ).execute()
-
-    drive_service.permissions().create(
-        fileId=file['id'],
-        body={'type': 'anyone', 'role': 'reader'}
-    ).execute()
-
-    return file.get('webViewLink')
+def upload_foto(file_bytes, file_name):
+    """Upload foto ke Cloudinary, return link."""
+    cloudinary.config(
+        cloud_name=st.secrets["cloudinary"]["cloud_name"],
+        api_key=st.secrets["cloudinary"]["api_key"],
+        api_secret=st.secrets["cloudinary"]["api_secret"]
+    )
+    result = cloudinary.uploader.upload(
+        io.BytesIO(file_bytes),
+        public_id=file_name,
+        folder="protrack"
+    )
+    return result['secure_url']
 
 def baca_sheet(nama_sheet):
     return conn.read(worksheet=nama_sheet, ttl=0)
@@ -349,11 +336,11 @@ def dashboard_pengawas():
         foto = st.file_uploader("Upload Foto", type=["jpg", "jpeg", "png"])
         submit_foto = st.form_submit_button("📤 Upload Foto")
         if submit_foto and foto:
-            with st.spinner("Mengupload foto ke Google Drive..."):
+            with st.spinner("Mengupload foto..."):
                 try:
                     file_bytes = foto.read()
-                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{foto.name}"
-                    link_foto = upload_foto_ke_drive(file_bytes, file_name)
+                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{foto.name}".replace(" ", "_")
+                    link_foto = upload_foto(file_bytes, file_name)
                     tambah_baris_gspread("foto_progres", {
                         "tanggal": str(tanggal_foto),
                         "proyek": proyek_pilihan,
