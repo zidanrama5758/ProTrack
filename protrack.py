@@ -44,12 +44,12 @@ def upload_foto(file_bytes, file_name):
     cloudinary.config(
         cloud_name=st.secrets["cloudinary"]["cloud_name"],
         api_key=st.secrets["cloudinary"]["api_key"],
-        api_secret=st.secrets["cloudinary"]["api_secret"]
+        api_secret=st.secrets["cloudinary"]["api_secret"],
+        secure=True
     )
     result = cloudinary.uploader.upload(
         io.BytesIO(file_bytes),
-        public_id=file_name,
-        folder="protrack"
+        public_id=file_name
     )
     return result['secure_url']
 
@@ -339,9 +339,9 @@ def dashboard_pengawas():
             with st.spinner("Mengupload foto..."):
                 try:
                     file_bytes = foto.read()
-                    # Hapus ekstensi dari public_id
+                    # Hapus ekstensi, ganti spasi dengan dash
                     nama_file = foto.name.rsplit('.', 1)[0]
-                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{nama_file}".replace(" ", "_")
+                    file_name = f"{proyek_pilihan}_{tanggal_foto}_{nama_file}".replace(" ", "-").replace("_", "-")
                     link_foto = upload_foto(file_bytes, file_name)
                     tambah_baris_gspread("foto_progres", {
                         "tanggal": str(tanggal_foto),
