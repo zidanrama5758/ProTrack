@@ -525,20 +525,31 @@ def dashboard_logistik():
             st.success("✅ Data pembelian berhasil disimpan!")
             st.rerun()
 
-    st.divider()
+      st.divider()
 
     st.header("📋 Riwayat Pembelian")
     df_masuk = baca_sheet("material_masuk")
-    if not df_masuk.empty:
-        df_filter = filter_proyek(df_masuk, proyek_pilihan)
-        st.dataframe(df_filter, use_container_width=True)
-        if "total" in df_filter.columns and not df_filter.empty:
-            total_pembelian = to_angka(df_filter["total"]).sum()
-        else:
-            total_pembelian = 0
-        st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+
+    st.write("=== DEBUG ===")
+    st.write("Tipe df_masuk:", type(df_masuk))
+    st.write("Kolom df_masuk:", df_masuk.columns.tolist())
+    st.write("Dtypes:", df_masuk.dtypes.to_dict() if not df_masuk.empty else "kosong")
+
+    df_filter = filter_proyek(df_masuk, proyek_pilihan)
+    st.write("Jumlah baris setelah filter:", len(df_filter))
+    st.write("Kolom df_filter:", df_filter.columns.tolist())
+
+    if "total" in df_filter.columns and not df_filter.empty:
+        st.write("Isi kolom total (repr):")
+        for v in df_filter["total"].tolist():
+            st.write(f"  - type={type(v).__name__}  repr={repr(v)}")
+        st.write("Hasil to_angka:", to_angka(df_filter["total"]).tolist())
+        st.write("Sum:", to_angka(df_filter["total"]).sum())
     else:
-        st.info("Belum ada pembelian.")
+        st.write("KOLOM 'total' TIDAK ADA atau df kosong")
+    st.write("===============")
+
+    st.dataframe(df_filter, use_container_width=True)
 
 # ==================== MAIN ====================
 if not st.session_state.logged_in:
