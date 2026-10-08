@@ -4,13 +4,11 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2 import service_account
 import io
 import json
-import toml
 
 st.set_page_config(page_title="ProTrack", layout="wide", page_icon="🏗️")
 
@@ -24,7 +22,10 @@ DRIVE_FOLDER_ID = "1YOcQxpcpLrYLR6JvKty9n3g6gNTpVlu-"
 def get_credentials():
     """Ambil credentials dari Streamlit secrets atau file JSON."""
     if "gcp_service_account" in st.secrets:
-        return dict(st.secrets["gcp_service_account"])
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        # Perbaiki private_key kalau ada double backslash
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        return creds_dict
     else:
         with open(JSON_FILE, "r") as f:
             return json.load(f)
@@ -32,7 +33,7 @@ def get_credentials():
 def get_gspread_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_dict = get_credentials()
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
 def tambah_baris_gspread(nama_sheet, baris_baru):
