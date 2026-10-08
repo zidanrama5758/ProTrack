@@ -16,7 +16,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # ==================== KONFIGURASI ====================
 JSON_FILE = "protrack-510911-15c05e7c04aa.json"
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2J0sxDYA4m2kWlGXiuzQ/edit"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2JOsxDYA4m2kWiGXiuzQ/edit"
 DRIVE_FOLDER_ID = "1YOcQxpcpLrYLR6JvKty9n3g6gNTpVlu-"
 
 def get_credentials():
