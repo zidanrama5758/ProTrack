@@ -11,7 +11,11 @@ import base64
 import cloudinary
 import cloudinary.uploader
 
-st.set_page_config(page_title="ProTrack", layout="wide", page_icon="🏗️")
+st.set_page_config(
+    page_title="ProTrack",
+    layout="wide",
+    page_icon="logo_protrack.png",
+)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -233,7 +237,7 @@ KODE_AKSES = {
 
 # ==================== LOGIN ====================
 def halaman_login():
-    # Logo ProTrack + Judul sejajar (tinggi sama)
+    # Logo ProTrack + Judul sejajar
     try:
         with open(LOGO_PROTRACK, "rb") as f:
             logo_b64 = base64.b64encode(f.read()).decode()
@@ -674,6 +678,46 @@ def dashboard_logistik():
 
     st.divider()
 
+    # ==================== MASTER MATERIAL ====================
+    st.header("📚 Master Material")
+    st.caption("Daftar seluruh material yang tersedia untuk proyek.")
+
+    # Filter kategori (opsional, biar gampang cari)
+    if "kategori" in df_master.columns:
+        daftar_kategori = ["Semua Kategori"] + sorted(
+            df_master["kategori"].dropna().astype(str).unique().tolist()
+        )
+        kategori_pilihan = st.selectbox("Filter Kategori", daftar_kategori)
+
+        if kategori_pilihan == "Semua Kategori":
+            df_master_tampil = df_master
+        else:
+            df_master_tampil = df_master[
+                df_master["kategori"].astype(str) == kategori_pilihan
+            ]
+
+        # Pencarian berdasarkan nama material
+        cari = st.text_input("🔍 Cari Material (nama / kode)")
+        if cari:
+            mask = (
+                df_master_tampil["nama_material"]
+                .astype(str)
+                .str.contains(cari, case=False, na=False)
+                | df_master_tampil["kode"]
+                .astype(str)
+                .str.contains(cari, case=False, na=False)
+            )
+            df_master_tampil = df_master_tampil[mask]
+
+        st.dataframe(df_master_tampil, use_container_width=True)
+        st.caption(f"Total: {len(df_master_tampil)} material")
+    else:
+        st.dataframe(df_master, use_container_width=True)
+        st.caption(f"Total: {len(df_master)} material")
+
+    st.divider()
+
+    # ==================== INPUT PEMBELIAN ====================
     st.header("📥 Input Pembelian Material")
     with st.form("form_material"):
         tanggal = st.date_input("Tanggal", datetime.now())
@@ -710,6 +754,7 @@ def dashboard_logistik():
 
     st.divider()
 
+    # ==================== RIWAYAT PEMBELIAN ====================
     st.header("📋 Riwayat Pembelian")
     df_masuk = baca_sheet("material_masuk")
     if not df_masuk.empty:
@@ -730,7 +775,7 @@ if not st.session_state.logged_in:
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
 else:
-    # Logo ProTrack + judul di sidebar (sejajar)
+    # Logo ProTrack + judul di sidebar
     try:
         with open(LOGO_PROTRACK, "rb") as f:
             sb_logo_b64 = base64.b64encode(f.read()).decode()
