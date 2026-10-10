@@ -74,7 +74,6 @@ def baca_sheet(nama_sheet):
 
 # ==================== HELPER BRANDING ====================
 def tampilkan_logo_bawah(path_logo):
-    """Tampilkan logo PT di pojok kiri bawah halaman (tanpa background)."""
     try:
         with open(path_logo, "rb") as f:
             data = base64.b64encode(f.read()).decode()
@@ -107,7 +106,6 @@ def tampilkan_logo_bawah(path_logo):
 
 
 def tampilkan_footer_pt():
-    """Tampilkan tulisan 'Created by' di pojok kanan atas."""
     st.markdown(
         """
         <style>
@@ -179,7 +177,6 @@ def cari_baris_proyek(nama_proyek):
 
 
 def update_proyek(nama_proyek, realisasi=None):
-    """Update kolom realisasi di sheet 'proyek' untuk 1 proyek."""
     baris = cari_baris_proyek(nama_proyek)
     if baris is None:
         return
@@ -202,7 +199,6 @@ def hitung_realisasi_proyek(nama_proyek):
 
 
 def ambil_progres_terbaru(nama_proyek):
-    """Ambil teks laporan terbaru dari laporan_harian untuk proyek ini."""
     df = baca_sheet("laporan_harian")
     if df.empty or "progres" not in df.columns:
         return "-"
@@ -554,7 +550,6 @@ def dashboard_admin():
         else:
             st.info("Belum ada Kurva S.")
 
-    # ==================== MASTER MATERIAL (BARU) ====================
     with st.expander("📚 Master Material"):
         df_master_all = baca_sheet("material_master")
         if not df_master_all.empty:
@@ -665,6 +660,27 @@ def dashboard_pengawas():
     else:
         st.info("Belum ada foto.")
 
+    st.divider()
+
+    # ==================== RIWAYAT PEMBELIAN MATERIAL (BARU) ====================
+    st.header(f"📦 Riwayat Pembelian Material: {proyek_pilihan}")
+    st.caption("Daftar material yang telah dibeli oleh bagian Logistik untuk proyek ini.")
+
+    df_masuk = baca_sheet("material_masuk")
+    if not df_masuk.empty:
+        df_filter = filter_proyek(df_masuk, proyek_pilihan)
+        if not df_filter.empty:
+            st.dataframe(df_filter, use_container_width=True)
+            st.caption(f"Total: {len(df_filter)} pembelian")
+
+            if "total" in df_filter.columns:
+                total_pembelian = to_angka(df_filter["total"]).sum()
+                st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+        else:
+            st.info("Belum ada pembelian material untuk proyek ini.")
+    else:
+        st.info("Belum ada pembelian material.")
+
 
 # ==================== DASHBOARD LOGISTIK ====================
 def dashboard_logistik():
@@ -686,7 +702,6 @@ def dashboard_logistik():
 
     st.divider()
 
-    # ==================== MASTER MATERIAL ====================
     st.header("📚 Master Material")
     st.caption("Daftar seluruh material yang tersedia untuk proyek.")
 
@@ -723,7 +738,6 @@ def dashboard_logistik():
 
     st.divider()
 
-    # ==================== INPUT PEMBELIAN ====================
     st.header("📥 Input Pembelian Material")
     with st.form("form_material"):
         tanggal = st.date_input("Tanggal", datetime.now())
@@ -760,7 +774,6 @@ def dashboard_logistik():
 
     st.divider()
 
-    # ==================== RIWAYAT PEMBELIAN ====================
     st.header("📋 Riwayat Pembelian")
     df_masuk = baca_sheet("material_masuk")
     if not df_masuk.empty:
@@ -816,6 +829,5 @@ else:
     elif st.session_state.role == "Logistik":
         dashboard_logistik()
 
-    # Branding
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
