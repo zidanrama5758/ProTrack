@@ -7,6 +7,7 @@ import gspread
 from google.oauth2 import service_account
 import io
 import json
+import base64
 import cloudinary
 import cloudinary.uploader
 
@@ -17,6 +18,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # ==================== KONFIGURASI ====================
 JSON_FILE = "protrack-510911-15c05e7c04aa.json"
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2JOsxDYA4m2kWiGXiuzQ/edit"
+LOGO_PATH = "logo_pt.png"
 
 
 def get_credentials():
@@ -59,7 +61,65 @@ def upload_foto(file_bytes, file_name):
 
 
 def baca_sheet(nama_sheet):
-    return conn.read(worksheet=nama_sheet, ttl=0)
+    df = conn.read(worksheet=nama_sheet, ttl=0)
+    if not df.empty:
+        df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+# ==================== HELPER BRANDING ====================
+def tampilkan_logo_bawah(path_logo):
+    """Tampilkan logo di pojok kiri bawah halaman."""
+    try:
+        with open(path_logo, "rb") as f:
+            data = base64.b64encode(f.read()).decode()
+        st.markdown(
+            f"""
+            <style>
+            .logo-pt-bawah {{
+                position: fixed;
+                bottom: 14px;
+                left: 14px;
+                width: 64px;
+                height: auto;
+                z-index: 9999;
+                background: rgba(255,255,255,0.92);
+                padding: 6px;
+                border-radius: 10px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            }}
+            </style>
+            <img src="data:image/png;base64,{data}" class="logo-pt-bawah">
+            """,
+            unsafe_allow_html=True,
+        )
+    except FileNotFoundError:
+        st.warning(f"Logo tidak ditemukan: {path_logo}")
+
+
+def tampilkan_footer_pt():
+    """Tampilkan tulisan 'Created by' di pojok kanan bawah."""
+    st.markdown(
+        """
+        <style>
+        .footer-pt {
+            position: fixed;
+            bottom: 14px;
+            right: 16px;
+            font-size: 13px;
+            color: #b0b0b0;
+            background: rgba(0,0,0,0.45);
+            padding: 7px 14px;
+            border-radius: 10px;
+            z-index: 9999;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            font-family: sans-serif;
+        }
+        </style>
+        <div class="footer-pt">Created by : PT Pandawa Unggul Berkemajuan</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ==================== HELPER NORMALISASI ====================
@@ -607,34 +667,23 @@ def dashboard_logistik():
 
     st.header("📋 Riwayat Pembelian")
     df_masuk = baca_sheet("material_masuk")
-
-    st.write("=== DEBUG ===")
-    st.write("Kolom df_masuk:", df_masuk.columns.tolist())
-    st.write(
-        "Dtypes:",
-        df_masuk.dtypes.astype(str).to_dict() if not df_masuk.empty else "kosong",
-    )
-
-    df_filter = filter_proyek(df_masuk, proyek_pilihan)
-    st.write("Jumlah baris setelah filter:", len(df_filter))
-    st.write("Kolom df_filter:", df_filter.columns.tolist())
-
-    if "total" in df_filter.columns and not df_filter.empty:
-        st.write("Isi kolom total (repr):")
-        for v in df_filter["total"].tolist():
-            st.write(f"  - type={type(v).__name__}  repr={repr(v)}")
-        st.write("Hasil to_angka:", to_angka(df_filter["total"]).tolist())
-        st.write("Sum:", to_angka(df_filter["total"]).sum())
+    if not df_masuk.empty:
+        df_filter = filter_proyek(df_masuk, proyek_pilihan)
+        st.dataframe(df_filter, use_container_width=True)
+        if "total" in df_filter.columns and not df_filter.empty:
+            total_pembelian = to_angka(df_filter["total"]).sum()
+        else:
+            total_pembelian = 0
+        st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
     else:
-        st.write("KOLOM 'total' TIDAK ADA atau df kosong")
-    st.write("===============")
-
-    st.dataframe(df_filter, use_container_width=True)
+        st.info("Belum ada pembelian.")
 
 
 # ==================== MAIN ====================
 if not st.session_state.logged_in:
     halaman_login()
+    tampilkan_footer_pt()
+    tampilkan_logo_bawah(LOGO_PATH)
 else:
     st.sidebar.title("🏗️ ProTrack")
     st.sidebar.write(f"Login sebagai: **{st.session_state.role}**")
@@ -651,3 +700,7 @@ else:
         dashboard_pengawas()
     elif st.session_state.role == "Logistik":
         dashboard_logistik()
+
+    # Branding di pojok bawah
+    tampilkan_footer_pt()
+    tampilkan_logo_bawah(LOGO_PATH)
