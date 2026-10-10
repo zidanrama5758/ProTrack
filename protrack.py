@@ -237,7 +237,6 @@ KODE_AKSES = {
 
 # ==================== LOGIN ====================
 def halaman_login():
-    # Logo ProTrack + Judul sejajar
     try:
         with open(LOGO_PROTRACK, "rb") as f:
             logo_b64 = base64.b64encode(f.read()).decode()
@@ -555,6 +554,15 @@ def dashboard_admin():
         else:
             st.info("Belum ada Kurva S.")
 
+    # ==================== MASTER MATERIAL (BARU) ====================
+    with st.expander("📚 Master Material"):
+        df_master_all = baca_sheet("material_master")
+        if not df_master_all.empty:
+            st.dataframe(df_master_all, use_container_width=True)
+            st.caption(f"Total: {len(df_master_all)} material")
+        else:
+            st.info("Belum ada master material.")
+
 
 # ==================== DASHBOARD PENGAWAS ====================
 def dashboard_pengawas():
@@ -682,7 +690,6 @@ def dashboard_logistik():
     st.header("📚 Master Material")
     st.caption("Daftar seluruh material yang tersedia untuk proyek.")
 
-    # Filter kategori (opsional, biar gampang cari)
     if "kategori" in df_master.columns:
         daftar_kategori = ["Semua Kategori"] + sorted(
             df_master["kategori"].dropna().astype(str).unique().tolist()
@@ -696,7 +703,6 @@ def dashboard_logistik():
                 df_master["kategori"].astype(str) == kategori_pilihan
             ]
 
-        # Pencarian berdasarkan nama material
         cari = st.text_input("🔍 Cari Material (nama / kode)")
         if cari:
             mask = (
@@ -775,7 +781,6 @@ if not st.session_state.logged_in:
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
 else:
-    # Logo ProTrack + judul di sidebar
     try:
         with open(LOGO_PROTRACK, "rb") as f:
             sb_logo_b64 = base64.b64encode(f.read()).decode()
