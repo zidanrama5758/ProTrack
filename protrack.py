@@ -233,15 +233,27 @@ KODE_AKSES = {
 
 # ==================== LOGIN ====================
 def halaman_login():
-    col_logo, col_judul = st.columns([1, 6])
-    with col_logo:
-        try:
-            st.image(LOGO_PROTRACK, width=55)
-        except Exception:
-            st.write("🏗️")
-    with col_judul:
-        st.title("ProTrack")
-        st.subheader("Project Tracking for Efficient Construction")
+    # Logo ProTrack + Judul sejajar (tinggi sama)
+    try:
+        with open(LOGO_PROTRACK, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="height:52px; width:auto; display:block;">'
+        )
+    except Exception:
+        logo_html = '<span style="font-size:48px;">🏗️</span>'
+
+    st.markdown(
+        f"""
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:4px;">
+            {logo_html}
+            <h1 style="margin:0; padding:0; font-size:44px; line-height:52px; font-weight:700;">ProTrack</h1>
+        </div>
+        <h3 style="margin-top:12px; font-weight:400;">Project Tracking for Efficient Construction</h3>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.write("")
     role = st.selectbox("Pilih Peran", ["Owner", "Admin", "Pengawas", "Logistik"])
@@ -718,14 +730,26 @@ if not st.session_state.logged_in:
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
 else:
-    col_sb_logo, col_sb_judul = st.sidebar.columns([1, 4])
-    with col_sb_logo:
-        try:
-            st.image(LOGO_PROTRACK, width=40)
-        except Exception:
-            st.write("🏗️")
-    with col_sb_judul:
-        st.markdown("### ProTrack")
+    # Logo ProTrack + judul di sidebar (sejajar)
+    try:
+        with open(LOGO_PROTRACK, "rb") as f:
+            sb_logo_b64 = base64.b64encode(f.read()).decode()
+        sb_logo = (
+            f'<img src="data:image/png;base64,{sb_logo_b64}" '
+            f'style="height:32px; width:auto; display:block;">'
+        )
+    except Exception:
+        sb_logo = '<span style="font-size:28px;">🏗️</span>'
+
+    st.sidebar.markdown(
+        f"""
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            {sb_logo}
+            <h2 style="margin:0; padding:0; font-size:26px; line-height:32px;">ProTrack</h2>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.sidebar.write(f"Login sebagai: **{st.session_state.role}**")
     if st.sidebar.button("Logout"):
