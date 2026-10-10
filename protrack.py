@@ -82,7 +82,7 @@ def tampilkan_logo_bawah(path_logo):
                 left: 12px;
                 width: 56px;
                 height: auto;
-                z-index: 10;
+                z-index: 999999;
                 background: rgba(255,255,255,0.92);
                 padding: 4px;
                 border-radius: 8px;
@@ -105,20 +105,20 @@ def tampilkan_logo_bawah(path_logo):
 
 
 def tampilkan_footer_pt():
-    """Tampilkan tulisan 'Created by' di pojok kiri atas."""
+    """Tampilkan tulisan 'Created by' di pojok kanan atas."""
     st.markdown(
         """
         <style>
         .footer-pt {
             position: fixed;
-            top: 12px;
-            left: 16px;
+            top: 60px;
+            right: 16px;
             font-size: 11px;
             color: #b0b0b0;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0.55);
             padding: 5px 10px;
             border-radius: 8px;
-            z-index: 10;
+            z-index: 999999;
             font-family: sans-serif;
             max-width: 60vw;
             white-space: nowrap;
@@ -129,11 +129,11 @@ def tampilkan_footer_pt():
             .footer-pt {
                 font-size: 9px;
                 padding: 3px 6px;
-                left: 8px;
-                top: 8px;
-                max-width: 55vw;
+                right: 8px;
+                top: 54px;
+                max-width: 60vw;
                 white-space: normal;
-                text-align: left;
+                text-align: right;
                 line-height: 1.2;
             }
         }
