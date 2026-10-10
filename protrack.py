@@ -173,7 +173,8 @@ def cari_baris_proyek(nama_proyek):
     return None
 
 
-def update_proyek(nama_proyek, realisasi=None, progres=None):
+def update_proyek(nama_proyek, realisasi=None):
+    """Update kolom realisasi di sheet 'proyek' untuk 1 proyek."""
     baris = cari_baris_proyek(nama_proyek)
     if baris is None:
         return
@@ -183,9 +184,6 @@ def update_proyek(nama_proyek, realisasi=None, progres=None):
     if realisasi is not None and "realisasi" in headers:
         kol = headers.index("realisasi") + 1
         sheet.update_cell(baris, kol, float(realisasi))
-    if progres is not None and "progres" in headers:
-        kol = headers.index("progres") + 1
-        sheet.update_cell(baris, kol, float(progres))
 
 
 def hitung_realisasi_proyek(nama_proyek):
@@ -198,14 +196,26 @@ def hitung_realisasi_proyek(nama_proyek):
     return float(to_angka(df_filter["total"]).sum())
 
 
-def hitung_progres_proyek(nama_proyek):
+def ambil_progres_terbaru(nama_proyek):
+    """Ambil teks laporan terbaru dari laporan_harian untuk proyek ini."""
     df = baca_sheet("laporan_harian")
     if df.empty or "progres" not in df.columns:
-        return 0.0
+        return "-"
     df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
-        return 0.0
-    return float(to_angka(df_filter["progres"]).max())
+        return "-"
+    # Urutkan berdasarkan kolom 'tanggal' kalau ada
+    try:
+        df_filter = df_filter.copy()
+        df_filter["_tgl"] = pd.to_datetime(df_filter["tanggal"], errors="coerce")
+        df_filter = df_filter.sort_values("_tgl", na_position="first")
+    except Exception:
+        pass
+    # Ambil baris terakhir
+    nilai = df_filter["progres"].iloc[-1]
+    if pd.isna(nilai) or str(nilai).strip() == "":
+        return "-"
+    return str(nilai)
 
 
 # ==================== SESSION STATE ====================
@@ -258,23 +268,22 @@ def dashboard_owner():
         st.header("📊 Ringkasan Semua Proyek")
 
         realisasi_list = []
-        progres_list = []
         for nama_p in df["nama"].tolist():
             realisasi_list.append(hitung_realisasi_proyek(nama_p))
-            progres_list.append(hitung_progres_proyek(nama_p))
 
         df["realisasi"] = realisasi_list
-        df["progres"] = progres_list
         df["Deviasi"] = df["realisasi"] - df["rab"]
 
-        col1, col2, col3, col4 = st.columns(4)
+        # Tabel ringkasan tanpa kolom progres
+        df_tampil = df.drop(columns=["progres"], errors="ignore")
+
+        col1, col2, col3 = st.columns(3)
         col1.metric("Total Proyek", len(df))
         col2.metric("Total RAB", f"Rp {df['rab'].sum():,.0f}")
         col3.metric("Total Realisasi", f"Rp {df['realisasi'].sum():,.0f}")
-        col4.metric("Total Deviasi", f"Rp {df['Deviasi'].sum():,.0f}")
 
         st.header("📋 Semua Proyek")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df_tampil, use_container_width=True)
 
         st.header("🔔 Alert Deviasi")
         over = df[df["Deviasi"] > 0]
@@ -288,12 +297,14 @@ def dashboard_owner():
         df_proyek = df[df["nama"] == proyek_pilihan].iloc[0]
 
         realisasi_hitung = hitung_realisasi_proyek(proyek_pilihan)
-        progres_hitung = hitung_progres_proyek(proyek_pilihan)
+        progres_teks = ambil_progres_terbaru(proyek_pilihan)
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("RAB", f"Rp {df_proyek['rab']:,.0f}")
         col2.metric("Realisasi", f"Rp {realisasi_hitung:,.0f}")
-        col3.metric("Progres", f"{progres_hitung:.1f}%")
+
+        st.markdown("**Progres Terbaru:**")
+        st.info(progres_teks if progres_teks else "-")
 
         st.header("📈 Kurva S")
         df_kurva = baca_sheet("kurva_s")
@@ -372,7 +383,7 @@ def dashboard_admin():
                     "lokasi": lokasi,
                     "rab": rab,
                     "realisasi": 0.0,
-                    "progres": 0,
+                    "progres": "",
                 },
             )
             st.success(f"✅ Proyek '{nama}' berhasil ditambahkan!")
@@ -543,9 +554,7 @@ def dashboard_pengawas():
     st.header("📝 Laporan Harian")
     with st.form("form_laporan"):
         tanggal = st.date_input("Tanggal", datetime.now())
-        progres = st.number_input(
-            "Progres (%)", min_value=0, max_value=100, key="progres_harian"
-        )
+        progres = st.text_input("Progres")
         kendala = st.text_area("Kendala")
         cuaca = st.selectbox("Cuaca", ["Cerah", "Berawan", "Hujan"])
         submit = st.form_submit_button("📤 Kirim Laporan")
@@ -560,8 +569,6 @@ def dashboard_pengawas():
                     "cuaca": cuaca,
                 },
             )
-            progres_terbaru = hitung_progres_proyek(proyek_pilihan)
-            update_proyek(proyek_pilihan, progres=progres_terbaru)
             st.success("✅ Laporan berhasil dikirim!")
             st.rerun()
 
