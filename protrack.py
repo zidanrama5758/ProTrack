@@ -105,14 +105,14 @@ def tampilkan_logo_bawah(path_logo):
 
 
 def tampilkan_footer_pt():
-    """Tampilkan tulisan 'Created by' di pojok kanan bawah."""
+    """Tampilkan tulisan 'Created by' di pojok kiri atas."""
     st.markdown(
         """
         <style>
         .footer-pt {
             position: fixed;
-            bottom: 12px;
-            right: 16px;
+            top: 12px;
+            left: 16px;
             font-size: 11px;
             color: #b0b0b0;
             background: rgba(0,0,0,0.5);
@@ -129,11 +129,11 @@ def tampilkan_footer_pt():
             .footer-pt {
                 font-size: 9px;
                 padding: 3px 6px;
-                right: 6px;
-                bottom: 6px;
-                max-width: 45vw;
+                left: 8px;
+                top: 8px;
+                max-width: 55vw;
                 white-space: normal;
-                text-align: right;
+                text-align: left;
                 line-height: 1.2;
             }
         }
@@ -723,6 +723,6 @@ else:
     elif st.session_state.role == "Logistik":
         dashboard_logistik()
 
-    # Branding di pojok bawah
+    # Branding
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
