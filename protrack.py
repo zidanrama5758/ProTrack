@@ -78,15 +78,22 @@ def tampilkan_logo_bawah(path_logo):
             <style>
             .logo-pt-bawah {{
                 position: fixed;
-                bottom: 14px;
-                left: 14px;
-                width: 64px;
+                bottom: 12px;
+                left: 12px;
+                width: 56px;
                 height: auto;
-                z-index: 9999;
+                z-index: 10;
                 background: rgba(255,255,255,0.92);
-                padding: 6px;
-                border-radius: 10px;
-                box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+                padding: 4px;
+                border-radius: 8px;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            }}
+            @media (max-width: 640px) {{
+                .logo-pt-bawah {{
+                    width: 40px;
+                    bottom: 8px;
+                    left: 8px;
+                }}
             }}
             </style>
             <img src="data:image/png;base64,{data}" class="logo-pt-bawah">
@@ -104,16 +111,31 @@ def tampilkan_footer_pt():
         <style>
         .footer-pt {
             position: fixed;
-            bottom: 14px;
+            bottom: 12px;
             right: 16px;
-            font-size: 13px;
+            font-size: 11px;
             color: #b0b0b0;
-            background: rgba(0,0,0,0.45);
-            padding: 7px 14px;
-            border-radius: 10px;
-            z-index: 9999;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 8px;
+            z-index: 10;
             font-family: sans-serif;
+            max-width: 60vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        @media (max-width: 640px) {
+            .footer-pt {
+                font-size: 9px;
+                padding: 3px 6px;
+                right: 6px;
+                bottom: 6px;
+                max-width: 45vw;
+                white-space: normal;
+                text-align: right;
+                line-height: 1.2;
+            }
         }
         </style>
         <div class="footer-pt">Created by : PT Pandawa Unggul Berkemajuan</div>
