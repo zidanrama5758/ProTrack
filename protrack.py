@@ -69,7 +69,7 @@ def baca_sheet(nama_sheet):
 
 # ==================== HELPER BRANDING ====================
 def tampilkan_logo_bawah(path_logo):
-    """Tampilkan logo di pojok kiri bawah halaman."""
+    """Tampilkan logo di pojok kiri bawah halaman (tanpa background)."""
     try:
         with open(path_logo, "rb") as f:
             data = base64.b64encode(f.read()).decode()
@@ -78,21 +78,18 @@ def tampilkan_logo_bawah(path_logo):
             <style>
             .logo-pt-bawah {{
                 position: fixed;
-                bottom: 12px;
-                left: 12px;
-                width: 56px;
+                bottom: 14px;
+                left: 14px;
+                width: 72px;
                 height: auto;
                 z-index: 999999;
-                background: rgba(255,255,255,0.92);
-                padding: 4px;
-                border-radius: 8px;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
             }}
             @media (max-width: 640px) {{
                 .logo-pt-bawah {{
-                    width: 40px;
-                    bottom: 8px;
-                    left: 8px;
+                    width: 52px;
+                    bottom: 10px;
+                    left: 10px;
                 }}
             }}
             </style>
