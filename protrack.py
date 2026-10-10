@@ -353,6 +353,7 @@ def dashboard_owner():
             else:
                 st.info("Belum ada Kurva S untuk proyek ini.")
 
+        # ==================== LAPORAN HARIAN ====================
         st.header("📝 Laporan Harian Pengawas")
         df_laporan = baca_sheet("laporan_harian")
         if not df_laporan.empty:
@@ -365,6 +366,27 @@ def dashboard_owner():
         else:
             st.info("Belum ada laporan harian.")
 
+        # ==================== RIWAYAT PEMBELIAN MATERIAL (BARU) ====================
+        st.header("📦 Riwayat Pembelian Material")
+        st.caption(
+            "Daftar material yang telah dibeli oleh bagian Logistik untuk proyek ini."
+        )
+        df_masuk = baca_sheet("material_masuk")
+        if not df_masuk.empty:
+            df_filter = filter_proyek(df_masuk, proyek_pilihan)
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} pembelian")
+
+                if "total" in df_filter.columns:
+                    total_pembelian = to_angka(df_filter["total"]).sum()
+                    st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+            else:
+                st.info("Belum ada pembelian material untuk proyek ini.")
+        else:
+            st.info("Belum ada pembelian material.")
+
+        # ==================== FOTO PROGRES ====================
         st.header("📸 Foto Progres")
         df_foto = baca_sheet("foto_progres")
         if not df_foto.empty:
@@ -659,27 +681,6 @@ def dashboard_pengawas():
             st.info("Belum ada foto untuk proyek ini.")
     else:
         st.info("Belum ada foto.")
-
-    st.divider()
-
-    # ==================== RIWAYAT PEMBELIAN MATERIAL (BARU) ====================
-    st.header(f"📦 Riwayat Pembelian Material: {proyek_pilihan}")
-    st.caption("Daftar material yang telah dibeli oleh bagian Logistik untuk proyek ini.")
-
-    df_masuk = baca_sheet("material_masuk")
-    if not df_masuk.empty:
-        df_filter = filter_proyek(df_masuk, proyek_pilihan)
-        if not df_filter.empty:
-            st.dataframe(df_filter, use_container_width=True)
-            st.caption(f"Total: {len(df_filter)} pembelian")
-
-            if "total" in df_filter.columns:
-                total_pembelian = to_angka(df_filter["total"]).sum()
-                st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
-        else:
-            st.info("Belum ada pembelian material untuk proyek ini.")
-    else:
-        st.info("Belum ada pembelian material.")
 
 
 # ==================== DASHBOARD LOGISTIK ====================
