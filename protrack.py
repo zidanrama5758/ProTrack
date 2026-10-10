@@ -19,6 +19,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 JSON_FILE = "protrack-510911-15c05e7c04aa.json"
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2JOsxDYA4m2kWiGXiuzQ/edit"
 LOGO_PATH = "logo_pt.png"
+LOGO_PROTRACK = "logo_protrack.png"
 
 
 def get_credentials():
@@ -69,7 +70,7 @@ def baca_sheet(nama_sheet):
 
 # ==================== HELPER BRANDING ====================
 def tampilkan_logo_bawah(path_logo):
-    """Tampilkan logo di pojok kiri bawah halaman (tanpa background)."""
+    """Tampilkan logo PT di pojok kiri bawah halaman (tanpa background)."""
     try:
         with open(path_logo, "rb") as f:
             data = base64.b64encode(f.read()).decode()
@@ -204,14 +205,12 @@ def ambil_progres_terbaru(nama_proyek):
     df_filter = filter_proyek(df, nama_proyek)
     if df_filter.empty:
         return "-"
-    # Urutkan berdasarkan kolom 'tanggal' kalau ada
     try:
         df_filter = df_filter.copy()
         df_filter["_tgl"] = pd.to_datetime(df_filter["tanggal"], errors="coerce")
         df_filter = df_filter.sort_values("_tgl", na_position="first")
     except Exception:
         pass
-    # Ambil baris terakhir
     nilai = df_filter["progres"].iloc[-1]
     if pd.isna(nilai) or str(nilai).strip() == "":
         return "-"
@@ -234,8 +233,17 @@ KODE_AKSES = {
 
 # ==================== LOGIN ====================
 def halaman_login():
-    st.title("🏗️ ProTrack")
-    st.subheader("Project Tracking for Efficient Construction")
+    col_logo, col_judul = st.columns([1, 6])
+    with col_logo:
+        try:
+            st.image(LOGO_PROTRACK, width=55)
+        except Exception:
+            st.write("🏗️")
+    with col_judul:
+        st.title("ProTrack")
+        st.subheader("Project Tracking for Efficient Construction")
+
+    st.write("")
     role = st.selectbox("Pilih Peran", ["Owner", "Admin", "Pengawas", "Logistik"])
     kode = st.text_input("Kode Akses", type="password")
     if st.button("Masuk"):
@@ -274,7 +282,6 @@ def dashboard_owner():
         df["realisasi"] = realisasi_list
         df["Deviasi"] = df["realisasi"] - df["rab"]
 
-        # Tabel ringkasan tanpa kolom progres
         df_tampil = df.drop(columns=["progres"], errors="ignore")
 
         col1, col2, col3 = st.columns(3)
@@ -711,7 +718,15 @@ if not st.session_state.logged_in:
     tampilkan_footer_pt()
     tampilkan_logo_bawah(LOGO_PATH)
 else:
-    st.sidebar.title("🏗️ ProTrack")
+    col_sb_logo, col_sb_judul = st.sidebar.columns([1, 4])
+    with col_sb_logo:
+        try:
+            st.image(LOGO_PROTRACK, width=40)
+        except Exception:
+            st.write("🏗️")
+    with col_sb_judul:
+        st.markdown("### ProTrack")
+
     st.sidebar.write(f"Login sebagai: **{st.session_state.role}**")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
