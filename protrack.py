@@ -8,6 +8,7 @@ from google.oauth2 import service_account
 import io
 import json
 import base64
+import time
 import cloudinary
 import cloudinary.uploader
 
@@ -30,6 +31,9 @@ KOLOM_KURVA = ["proyek", "minggu", "rencana", "realisasi"]
 KOLOM_MATERIAL = ["kode", "nama_material", "satuan", "kategori"]
 
 KATA_KUNCI_RINGKASAN = ["jumlah", "total", "ppn", "subtotal", "divisi", "grand"]
+
+# Cache TTL (detik) — baca ulang sheet setiap 30 detik
+TTL_CACHE = 30
 
 
 def get_credentials():
@@ -75,8 +79,23 @@ def upload_foto(file_bytes, file_name):
     return result["secure_url"]
 
 
+def _retry_baca_sheet(nama_sheet, max_retry=3):
+    """Baca sheet dengan retry backoff kalau kena rate limit."""
+    delay = 1.0
+    for attempt in range(max_retry):
+        try:
+            return conn.read(worksheet=nama_sheet, ttl=TTL_CACHE)
+        except Exception as e:
+            pesan = str(e).lower()
+            if ("429" in pesan or "quota" in pesan or "rate" in pesan) and attempt < max_retry - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise
+
+
 def baca_sheet(nama_sheet):
-    df = conn.read(worksheet=nama_sheet, ttl=0)
+    df = _retry_baca_sheet(nama_sheet)
     if df.empty:
         return df
     df.columns = [str(c).strip() for c in df.columns]
@@ -87,7 +106,7 @@ def baca_sheet(nama_sheet):
 
 
 def baca_rab_detail_bersih():
-    df = conn.read(worksheet="rab_detail", ttl=0)
+    df = _retry_baca_sheet("rab_detail")
     if df.empty:
         return df
     df.columns = [str(c).strip() for c in df.columns]
@@ -690,7 +709,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== RINGKASAN RAB ====================
     st.header("💰 Ringkasan RAB")
     total_rab, ppn_persen, nilai_ppn, total_akhir = hitung_ringkasan_rab(proyek_pilihan)
 
@@ -711,7 +729,6 @@ def dashboard_admin():
             st.success(f"✅ PPN diubah menjadi {ppn_baru:.0f}%")
             st.rerun()
 
-    # ==================== DEVIAASI SEBELUM & SESUDAH PPN ====================
     st.subheader("📊 Deviasi")
     realisasi_cek = hitung_realisasi_proyek(proyek_pilihan)
     dev_sebelum_ppn = realisasi_cek - total_rab
@@ -733,7 +750,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== RAB DETAIL ====================
     st.header("📥 Upload RAB Detail")
     st.caption("Format Excel: kolom `kode`, `item_pekerjaan`, `satuan`, `volume`, `harga_satuan`, `jumlah_harga`")
     file_rab = st.file_uploader(
@@ -807,7 +823,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== KURVA S ====================
     st.header("📥 Upload Kurva S")
     st.caption("Format Excel: kolom `minggu`, `rencana`, `realisasi`")
     file_kurva = st.file_uploader(
@@ -852,7 +867,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== MASTER MATERIAL ====================
     st.header("📥 Upload Master Material (Global)")
     st.caption("Format Excel: kolom `kode`, `nama_material`, `satuan`, `kategori`")
     file_mat = st.file_uploader(
@@ -907,7 +921,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== TOMBOL BUKA SPREADSHEET ====================
     st.markdown("")
     st.markdown(
         f"""
@@ -929,7 +942,6 @@ def dashboard_admin():
 
     st.divider()
 
-    # ==================== DATA PROYEK ====================
     st.header(f"📋 Data Proyek: {proyek_pilihan}")
 
     with st.expander("📋 RAB Detail"):
