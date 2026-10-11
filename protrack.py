@@ -631,3 +631,650 @@ def dashboard_owner():
                 st.info("Belum ada foto untuk proyek ini.")
         else:
             st.info("Belum ada foto.")
+# ==================== DASHBOARD ADMIN ====================
+def dashboard_admin():
+    st.title("🛠️ Dashboard Admin")
+
+    df_proyek = baca_sheet("proyek")
+    daftar_proyek = df_proyek["nama"].tolist() if not df_proyek.empty else []
+
+    st.header("➕ Tambah Proyek Baru")
+    with st.form("form_proyek"):
+        nama = st.text_input("Nama Proyek")
+        lokasi = st.text_input("Lokasi")
+        rab = st.number_input("RAB (Rp)", min_value=0.0, step=1000000.0)
+        ppn = st.number_input("PPN (%)", min_value=0.0, max_value=100.0, value=12.0, step=1.0)
+        submit = st.form_submit_button("Tambah Proyek")
+        if submit and nama:
+            tambah_baris_gspread(
+                "proyek",
+                {
+                    "nama": nama,
+                    "lokasi": lokasi,
+                    "rab": rab,
+                    "realisasi": 0.0,
+                    "progres": "",
+                    "ppn": ppn,
+                },
+            )
+            st.success(f"✅ Proyek '{nama}' berhasil ditambahkan!")
+            st.rerun()
+
+    st.divider()
+
+    if not daftar_proyek:
+        st.info("Belum ada proyek. Tambah proyek baru dulu.")
+        return
+
+    st.header("📁 Pilih Proyek")
+    proyek_pilihan = st.selectbox(
+        "Proyek yang Mau Dikelola", daftar_proyek, key="admin_proyek"
+    )
+    st.success(f"Proyek aktif: **{proyek_pilihan}**")
+
+    st.divider()
+
+    # ==================== RINGKASAN RAB ====================
+    st.header("💰 Ringkasan RAB")
+    total_rab, ppn_persen, nilai_ppn, total_akhir = hitung_ringkasan_rab(proyek_pilihan)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Item Pekerjaan", f"Rp {total_rab:,.0f}")
+    col2.metric(f"PPN ({ppn_persen:.0f}%)", f"Rp {nilai_ppn:,.0f}")
+    col3.metric("Total Akhir", f"Rp {total_akhir:,.0f}")
+
+    with st.form("form_ppn"):
+        ppn_baru = st.number_input(
+            "Ubah PPN (%)", min_value=0.0, max_value=100.0,
+            value=float(ppn_persen), step=1.0
+        )
+        submit_ppn = st.form_submit_button("💾 Simpan PPN")
+        if submit_ppn:
+            update_ppn_proyek_di_sheet(proyek_pilihan, ppn_baru)
+            update_rab_proyek_di_sheet(proyek_pilihan)
+            st.success(f"✅ PPN diubah menjadi {ppn_baru:.0f}%")
+            st.rerun()
+
+    st.divider()
+
+    # ==================== RAB DETAIL ====================
+    st.header("📥 Upload RAB Detail")
+    st.caption("Format Excel: kolom `kode`, `item_pekerjaan`, `satuan`, `volume`, `harga_satuan`, `jumlah_harga`")
+    file_rab = st.file_uploader(
+        "Upload file RAB Detail (Excel/CSV)",
+        type=["xlsx", "xls", "csv"],
+        key="rab",
+    )
+    if file_rab:
+        try:
+            if file_rab.name.endswith(".csv"):
+                df_rab = pd.read_csv(file_rab)
+            else:
+                df_rab = pd.read_excel(file_rab)
+            st.write("📋 Preview RAB Detail:")
+            st.dataframe(df_rab.head(10), use_container_width=True)
+            st.caption(f"Total baris: {len(df_rab)}")
+            if st.button("📥 Import RAB Detail ke Proyek Ini"):
+                jumlah_masuk = 0
+                for _, row in df_rab.iterrows():
+                    item_str = str(row.get("item_pekerjaan", "")).lower()
+                    if any(k in item_str for k in KATA_KUNCI_RINGKASAN):
+                        continue
+                    kode_val = str(row.get("kode", "")).strip()
+                    vol_val = str(row.get("volume", "")).strip()
+                    if not kode_val and not vol_val:
+                        continue
+                    no_auto = generate_no_rab(proyek_pilihan)
+                    data = [
+                        no_auto,
+                        proyek_pilihan,
+                        row.get("kode", ""),
+                        row.get("item_pekerjaan", ""),
+                        row.get("satuan", ""),
+                        row.get("volume", 0),
+                        row.get("harga_satuan", 0),
+                        row.get("jumlah_harga", 0),
+                    ]
+                    tambah_baris_rab_dengan_header(proyek_pilihan, data)
+                    jumlah_masuk += 1
+                update_rab_proyek_di_sheet(proyek_pilihan)
+                st.success(f"✅ {jumlah_masuk} baris RAB detail berhasil diimport!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    with st.expander("➕ Input Manual RAB Detail"):
+        with st.form("form_rab_manual"):
+            kode_rab = st.text_input("Kode AHSP")
+            item_rab = st.text_input("Item Pekerjaan")
+            satuan_rab = st.text_input("Satuan")
+            volume_rab = st.number_input("Volume", min_value=0.0)
+            harga_rab = st.number_input("Harga Satuan (Rp)", min_value=0.0)
+            submit_rab = st.form_submit_button("📤 Simpan RAB")
+            if submit_rab:
+                no_auto = generate_no_rab(proyek_pilihan)
+                jumlah = volume_rab * harga_rab
+                data = [
+                    no_auto,
+                    proyek_pilihan,
+                    kode_rab,
+                    item_rab,
+                    satuan_rab,
+                    volume_rab,
+                    harga_rab,
+                    jumlah,
+                ]
+                tambah_baris_rab_dengan_header(proyek_pilihan, data)
+                update_rab_proyek_di_sheet(proyek_pilihan)
+                st.success(f"✅ RAB '{item_rab}' (no {no_auto}) disimpan!")
+                st.rerun()
+
+    st.divider()
+
+    # ==================== KURVA S ====================
+    st.header("📥 Upload Kurva S")
+    st.caption("Format Excel: kolom `minggu`, `rencana`, `realisasi`")
+    file_kurva = st.file_uploader(
+        "Upload file Kurva S (Excel/CSV)",
+        type=["xlsx", "xls", "csv"],
+        key="kurva",
+    )
+    if file_kurva:
+        try:
+            if file_kurva.name.endswith(".csv"):
+                df_kurva = pd.read_csv(file_kurva)
+            else:
+                df_kurva = pd.read_excel(file_kurva)
+            st.write("📋 Preview Kurva S:")
+            st.dataframe(df_kurva.head(10), use_container_width=True)
+            st.caption(f"Total baris: {len(df_kurva)}")
+            if st.button("📥 Import Kurva S ke Proyek Ini"):
+                for _, row in df_kurva.iterrows():
+                    data = [
+                        proyek_pilihan,
+                        int(row["minggu"]),
+                        row.get("rencana", 0),
+                        row.get("realisasi", 0),
+                    ]
+                    tambah_baris_kurva_dengan_header(proyek_pilihan, data)
+                st.success(f"✅ {len(df_kurva)} baris Kurva S berhasil diimport!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    with st.expander("➕ Input Manual Kurva S"):
+        with st.form("form_kurva_manual"):
+            minggu_k = st.number_input("Minggu ke-", min_value=1, step=1)
+            rencana_k = st.number_input("Rencana (%)", min_value=0.0)
+            realisasi_k = st.number_input("Realisasi (%)", min_value=0.0)
+            submit_k = st.form_submit_button("📤 Simpan Kurva S")
+            if submit_k:
+                data = [proyek_pilihan, int(minggu_k), rencana_k, realisasi_k]
+                tambah_baris_kurva_dengan_header(proyek_pilihan, data)
+                st.success(f"✅ Kurva S minggu {int(minggu_k)} disimpan!")
+                st.rerun()
+
+    st.divider()
+
+    # ==================== MASTER MATERIAL ====================
+    st.header("📥 Upload Master Material (Global)")
+    st.caption("Format Excel: kolom `kode`, `nama_material`, `satuan`, `kategori`")
+    file_mat = st.file_uploader(
+        "Upload Master Material (Excel/CSV)",
+        type=["xlsx", "xls", "csv"],
+        key="mat",
+    )
+    if file_mat:
+        try:
+            if file_mat.name.endswith(".csv"):
+                df_mat = pd.read_csv(file_mat)
+            else:
+                df_mat = pd.read_excel(file_mat)
+            st.write("📋 Preview Master Material:")
+            st.dataframe(df_mat.head(10), use_container_width=True)
+            st.caption(f"Total baris: {len(df_mat)}")
+            if st.button("📥 Import Master Material"):
+                for _, row in df_mat.iterrows():
+                    tambah_baris_gspread(
+                        "material_master",
+                        {
+                            "kode": row["kode"],
+                            "nama_material": row["nama_material"],
+                            "satuan": row["satuan"],
+                            "kategori": row["kategori"],
+                        },
+                    )
+                st.success(f"✅ {len(df_mat)} baris Master Material diimport!")
+                st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    with st.expander("➕ Input Manual Master Material"):
+        with st.form("form_material_manual"):
+            kode_m = st.text_input("Kode Material")
+            nama_m = st.text_input("Nama Material")
+            satuan_m = st.text_input("Satuan")
+            kategori_m = st.text_input("Kategori")
+            submit_m = st.form_submit_button("📤 Simpan Material")
+            if submit_m:
+                tambah_baris_gspread(
+                    "material_master",
+                    {
+                        "kode": kode_m,
+                        "nama_material": nama_m,
+                        "satuan": satuan_m,
+                        "kategori": kategori_m,
+                    },
+                )
+                st.success(f"✅ Material '{nama_m}' disimpan!")
+                st.rerun()
+
+    st.divider()
+
+    # ==================== DATA PROYEK ====================
+    st.header(f"📋 Data Proyek: {proyek_pilihan}")
+
+    with st.expander("📋 RAB Detail"):
+        df_rab_all = baca_rab_detail_bersih()
+        if not df_rab_all.empty:
+            df_filter = filter_proyek(df_rab_all, proyek_pilihan)
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} baris")
+
+                st.markdown("**Edit / Hapus RAB Detail**")
+                no_pilihan = st.selectbox(
+                    "Pilih 'no' baris yang mau diedit/dihapus",
+                    df_filter["no"].astype(str).tolist(),
+                    key="edit_rab_no",
+                )
+                col_edit, col_hapus = st.columns(2)
+                with col_edit:
+                    if st.button("✏️ Edit Baris Ini", key="btn_edit_rab"):
+                        st.session_state["edit_rab_aktif"] = no_pilihan
+                with col_hapus:
+                    if st.button("🗑️ Hapus Baris Ini", key="btn_hapus_rab"):
+                        baris = cari_baris_rab_by_no(no_pilihan)
+                        if baris:
+                            hapus_baris_sheet("rab_detail", baris)
+                            update_rab_proyek_di_sheet(proyek_pilihan)
+                            st.success(f"✅ Baris {no_pilihan} dihapus.")
+                            st.rerun()
+
+                if st.session_state.get("edit_rab_aktif") == no_pilihan:
+                    row_edit = df_filter[df_filter["no"].astype(str) == no_pilihan].iloc[0]
+                    with st.form("form_edit_rab"):
+                        st.markdown(f"**Edit RAB - no {no_pilihan}**")
+                        kode_e = st.text_input("Kode", value=str(row_edit.get("kode", "")))
+                        item_e = st.text_input("Item Pekerjaan", value=str(row_edit.get("item_pekerjaan", "")))
+                        satuan_e = st.text_input("Satuan", value=str(row_edit.get("satuan", "")))
+                        volume_e = st.number_input("Volume", min_value=0.0, value=float(to_angka(pd.Series([row_edit.get("volume", 0)])).iloc[0]))
+                        harga_e = st.number_input("Harga Satuan", min_value=0.0, value=float(to_angka(pd.Series([row_edit.get("harga_satuan", 0)])).iloc[0]))
+                        submit_edit = st.form_submit_button("💾 Simpan Perubahan")
+                        if submit_edit:
+                            jumlah_e = volume_e * harga_e
+                            data_baru = [no_pilihan, proyek_pilihan, kode_e, item_e, satuan_e, volume_e, harga_e, jumlah_e]
+                            baris = cari_baris_rab_by_no(no_pilihan)
+                            if baris:
+                                update_baris_sheet("rab_detail", baris, data_baru)
+                                update_rab_proyek_di_sheet(proyek_pilihan)
+                                st.session_state["edit_rab_aktif"] = None
+                                st.success(f"✅ Baris {no_pilihan} diupdate.")
+                                st.rerun()
+            else:
+                st.info("Belum ada RAB detail untuk proyek ini.")
+        else:
+            st.info("Belum ada RAB detail.")
+
+    with st.expander("📈 Kurva S"):
+        df_kurva_all = baca_sheet("kurva_s")
+        if not df_kurva_all.empty:
+            df_filter = filter_proyek(df_kurva_all, proyek_pilihan)
+            if not df_filter.empty:
+                df_filter = df_filter.copy()
+                df_filter["minggu"] = to_angka(df_filter["minggu"])
+                df_filter["rencana"] = to_angka(df_filter["rencana"])
+                df_filter["realisasi"] = to_angka(df_filter["realisasi"])
+                df_filter = df_filter.sort_values("minggu")
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} baris")
+
+                # Preview grafik
+                fig2, ax2 = plt.subplots(figsize=(10, 4))
+                ax2.plot(df_filter["minggu"], df_filter["rencana"], label="Rencana", color="blue", marker="o")
+                ax2.plot(df_filter["minggu"], df_filter["realisasi"], label="Realisasi", color="orange", marker="s")
+                ax2.set_xlabel("Minggu")
+                ax2.set_ylabel("Bobot (%)")
+                ax2.legend()
+                ax2.grid(True)
+                st.pyplot(fig2)
+
+                st.markdown("**Edit / Hapus Kurva S**")
+                opsi_kurva = [f"Minggu {int(m)}" for m in df_filter["minggu"].tolist()]
+                pilih_kurva = st.selectbox("Pilih baris Kurva S", opsi_kurva, key="edit_kurva_sel")
+                minggu_pilih = int(pilih_kurva.replace("Minggu ", ""))
+
+                col_e, col_h = st.columns(2)
+                with col_e:
+                    if st.button("✏️ Edit Kurva S", key="btn_edit_kurva"):
+                        st.session_state["edit_kurva_aktif"] = minggu_pilih
+                with col_h:
+                    if st.button("🗑️ Hapus Kurva S", key="btn_hapus_kurva"):
+                        baris = cari_baris_kurva(proyek_pilihan, minggu_pilih)
+                        if baris:
+                            hapus_baris_sheet("kurva_s", baris)
+                            st.success(f"✅ Kurva S minggu {minggu_pilih} dihapus.")
+                            st.rerun()
+
+                if st.session_state.get("edit_kurva_aktif") == minggu_pilih:
+                    row_k = df_filter[df_filter["minggu"] == minggu_pilih].iloc[0]
+                    with st.form("form_edit_kurva"):
+                        st.markdown(f"**Edit Kurva S - Minggu {minggu_pilih}**")
+                        rencana_e = st.number_input("Rencana (%)", min_value=0.0, value=float(row_k["rencana"]))
+                        realisasi_e = st.number_input("Realisasi (%)", min_value=0.0, value=float(row_k["realisasi"]))
+                        submit_ek = st.form_submit_button("💾 Simpan Perubahan")
+                        if submit_ek:
+                            baris = cari_baris_kurva(proyek_pilihan, minggu_pilih)
+                            if baris:
+                                update_baris_sheet("kurva_s", baris, [proyek_pilihan, minggu_pilih, rencana_e, realisasi_e])
+                                st.session_state["edit_kurva_aktif"] = None
+                                st.success(f"✅ Kurva S minggu {minggu_pilih} diupdate.")
+                                st.rerun()
+            else:
+                st.info("Belum ada Kurva S untuk proyek ini.")
+        else:
+            st.info("Belum ada Kurva S.")
+
+    with st.expander("📚 Master Material"):
+        df_master_all = baca_sheet("material_master")
+        if not df_master_all.empty:
+            st.dataframe(df_master_all, use_container_width=True)
+            st.caption(f"Total: {len(df_master_all)} material")
+
+            st.markdown("**Edit / Hapus Master Material**")
+            kode_pilih = st.selectbox("Pilih kode material", df_master_all["kode"].astype(str).tolist(), key="edit_mat_sel")
+
+            col_e, col_h = st.columns(2)
+            with col_e:
+                if st.button("✏️ Edit Material", key="btn_edit_mat"):
+                    st.session_state["edit_mat_aktif"] = kode_pilih
+            with col_h:
+                if st.button("🗑️ Hapus Material", key="btn_hapus_mat"):
+                    baris = cari_baris_material(kode_pilih)
+                    if baris:
+                        hapus_baris_sheet("material_master", baris)
+                        st.success(f"✅ Material {kode_pilih} dihapus.")
+                        st.rerun()
+
+            if st.session_state.get("edit_mat_aktif") == kode_pilih:
+                row_m = df_master_all[df_master_all["kode"].astype(str) == kode_pilih].iloc[0]
+                with st.form("form_edit_mat"):
+                    st.markdown(f"**Edit Material - kode {kode_pilih}**")
+                    nama_e = st.text_input("Nama Material", value=str(row_m.get("nama_material", "")))
+                    satuan_e = st.text_input("Satuan", value=str(row_m.get("satuan", "")))
+                    kategori_e = st.text_input("Kategori", value=str(row_m.get("kategori", "")))
+                    submit_em = st.form_submit_button("💾 Simpan Perubahan")
+                    if submit_em:
+                        baris = cari_baris_material(kode_pilih)
+                        if baris:
+                            update_baris_sheet("material_master", baris, [kode_pilih, nama_e, satuan_e, kategori_e])
+                            st.session_state["edit_mat_aktif"] = None
+                            st.success(f"✅ Material {kode_pilih} diupdate.")
+                            st.rerun()
+        else:
+            st.info("Belum ada master material.")
+
+
+# ==================== DASHBOARD PENGAWAS ====================
+def dashboard_pengawas():
+    st.title("👷 Dashboard Pengawas")
+
+    df_proyek = baca_sheet("proyek")
+    if df_proyek.empty:
+        st.info("Belum ada proyek. Hubungi Admin.")
+        return
+
+    daftar_proyek = df_proyek["nama"].tolist()
+
+    st.header("📁 Pilih Proyek")
+    proyek_pilihan = st.selectbox(
+        "Proyek yang Diawasi", daftar_proyek, key="pengawas_proyek"
+    )
+
+    st.divider()
+
+    st.header("📝 Laporan Harian")
+    with st.form("form_laporan"):
+        tanggal = st.date_input("Tanggal", datetime.now())
+        progres = st.text_input("Progres")
+        kendala = st.text_area("Kendala")
+        cuaca = st.selectbox("Cuaca", ["Cerah", "Berawan", "Hujan"])
+        submit = st.form_submit_button("📤 Kirim Laporan")
+        if submit:
+            tambah_baris_gspread(
+                "laporan_harian",
+                {
+                    "tanggal": str(tanggal),
+                    "proyek": proyek_pilihan,
+                    "progres": progres,
+                    "kendala": kendala,
+                    "cuaca": cuaca,
+                },
+            )
+            st.success("✅ Laporan berhasil dikirim!")
+            st.rerun()
+
+    st.header(f"📋 Riwayat Laporan: {proyek_pilihan}")
+    df_laporan = baca_sheet("laporan_harian")
+    if not df_laporan.empty:
+        df_filter = filter_proyek(df_laporan, proyek_pilihan)
+        if not df_filter.empty:
+            st.dataframe(df_filter, use_container_width=True)
+            st.caption(f"Total: {len(df_filter)} laporan")
+        else:
+            st.info("Belum ada laporan harian.")
+    else:
+        st.info("Belum ada laporan harian.")
+
+    st.divider()
+
+    st.header("📸 Upload Foto Progres")
+    with st.form("form_foto"):
+        tanggal_foto = st.date_input("Tanggal Foto", datetime.now())
+        keterangan = st.text_area("Keterangan Foto")
+        foto = st.file_uploader("Upload Foto", type=["jpg", "jpeg", "png"])
+        submit_foto = st.form_submit_button("📤 Upload Foto")
+        if submit_foto and foto:
+            with st.spinner("Mengupload foto..."):
+                try:
+                    file_bytes = foto.read()
+                    nama_file = foto.name.rsplit(".", 1)[0]
+                    file_name = (
+                        f"{proyek_pilihan}_{tanggal_foto}_{nama_file}"
+                        .replace(" ", "-")
+                        .replace("_", "-")
+                    )
+                    link_foto = upload_foto(file_bytes, file_name)
+                    tambah_baris_gspread(
+                        "foto_progres",
+                        {
+                            "tanggal": str(tanggal_foto),
+                            "proyek": proyek_pilihan,
+                            "keterangan": keterangan,
+                            "link_foto": link_foto,
+                        },
+                    )
+                    st.success("✅ Foto berhasil diupload!")
+                    st.markdown(f"[Lihat Foto]({link_foto})")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    st.divider()
+
+    st.header(f"📸 Riwayat Foto: {proyek_pilihan}")
+    df_foto = baca_sheet("foto_progres")
+    if not df_foto.empty:
+        df_filter = filter_proyek(df_foto, proyek_pilihan)
+        if not df_filter.empty:
+            for _, row in df_filter.iterrows():
+                st.markdown(f"**{row['tanggal']}** — {row['keterangan']}")
+                st.markdown(f"[Lihat Foto]({row['link_foto']})")
+                st.divider()
+        else:
+            st.info("Belum ada foto untuk proyek ini.")
+    else:
+        st.info("Belum ada foto.")
+
+
+# ==================== DASHBOARD LOGISTIK ====================
+def dashboard_logistik():
+    st.title("📦 Dashboard Logistik")
+
+    df_proyek = baca_sheet("proyek")
+    df_master = baca_sheet("material_master")
+    if df_proyek.empty:
+        st.info("Belum ada proyek. Hubungi Admin.")
+        return
+    if df_master.empty:
+        st.info("Belum ada master material. Hubungi Admin.")
+        return
+
+    daftar_proyek = df_proyek["nama"].tolist()
+
+    st.header("📁 Pilih Proyek")
+    proyek_pilihan = st.selectbox("Proyek", daftar_proyek, key="logistik_proyek")
+
+    st.divider()
+
+    st.header("📚 Master Material")
+    st.caption("Daftar seluruh material yang tersedia untuk proyek.")
+
+    if "kategori" in df_master.columns:
+        daftar_kategori = ["Semua Kategori"] + sorted(
+            df_master["kategori"].dropna().astype(str).unique().tolist()
+        )
+        kategori_pilihan = st.selectbox("Filter Kategori", daftar_kategori)
+
+        if kategori_pilihan == "Semua Kategori":
+            df_master_tampil = df_master
+        else:
+            df_master_tampil = df_master[
+                df_master["kategori"].astype(str) == kategori_pilihan
+            ]
+
+        cari = st.text_input("🔍 Cari Material (nama / kode)")
+        if cari:
+            mask = (
+                df_master_tampil["nama_material"].astype(str).str.contains(cari, case=False, na=False)
+                | df_master_tampil["kode"].astype(str).str.contains(cari, case=False, na=False)
+            )
+            df_master_tampil = df_master_tampil[mask]
+
+        st.dataframe(df_master_tampil, use_container_width=True)
+        st.caption(f"Total: {len(df_master_tampil)} material")
+    else:
+        st.dataframe(df_master, use_container_width=True)
+        st.caption(f"Total: {len(df_master)} material")
+
+    st.divider()
+
+    st.header("📥 Input Pembelian Material")
+    with st.form("form_material"):
+        tanggal = st.date_input("Tanggal", datetime.now())
+        kode_material = st.selectbox("Kode Material", df_master["kode"])
+        merek = st.text_input("Merek")
+        jumlah = st.number_input("Jumlah", min_value=0.0)
+        harga_satuan = st.number_input("Harga Satuan (Rp)", min_value=0.0)
+        supplier = st.text_input("Supplier")
+        submit = st.form_submit_button("📤 Simpan")
+        if submit:
+            row_master = df_master[df_master["kode"] == kode_material].iloc[0]
+            nama_material = row_master["nama_material"]
+            satuan = row_master["satuan"]
+            total = jumlah * harga_satuan
+            tambah_baris_gspread(
+                "material_masuk",
+                {
+                    "tanggal": str(tanggal),
+                    "proyek": proyek_pilihan,
+                    "kode_material": kode_material,
+                    "nama_material": nama_material,
+                    "merek": merek,
+                    "jumlah": jumlah,
+                    "satuan": satuan,
+                    "harga_satuan": harga_satuan,
+                    "total": total,
+                    "supplier": supplier,
+                },
+            )
+            total_realisasi = hitung_realisasi_proyek(proyek_pilihan)
+            ws = get_worksheet("proyek")
+            headers = [h.strip() for h in ws.row_values(1)]
+            if "realisasi" in headers:
+                baris_p = cari_baris_proyek(proyek_pilihan)
+                if baris_p:
+                    kol_r = headers.index("realisasi") + 1
+                    ws.update_cell(baris_p, kol_r, float(total_realisasi))
+            st.success("✅ Data pembelian berhasil disimpan!")
+            st.rerun()
+
+    st.divider()
+
+    st.header("📋 Riwayat Pembelian")
+    df_masuk = baca_sheet("material_masuk")
+    if not df_masuk.empty:
+        df_filter = filter_proyek(df_masuk, proyek_pilihan)
+        st.dataframe(df_filter, use_container_width=True)
+        if "total" in df_filter.columns and not df_filter.empty:
+            total_pembelian = to_angka(df_filter["total"]).sum()
+        else:
+            total_pembelian = 0
+        st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+    else:
+        st.info("Belum ada pembelian.")
+
+
+# ==================== MAIN ====================
+if not st.session_state.logged_in:
+    halaman_login()
+    tampilkan_footer_pt()
+    tampilkan_logo_bawah(LOGO_PATH)
+else:
+    try:
+        with open(LOGO_PROTRACK, "rb") as f:
+            sb_logo_b64 = base64.b64encode(f.read()).decode()
+        sb_logo = (
+            f'<img src="data:image/png;base64,{sb_logo_b64}" '
+            f'style="height:32px; width:auto; display:block;">'
+        )
+    except Exception:
+        sb_logo = '<span style="font-size:28px;">🏗️</span>'
+
+    st.sidebar.markdown(
+        f"""
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            {sb_logo}
+            <h2 style="margin:0; padding:0; font-size:26px; line-height:32px;">ProTrack</h2>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.sidebar.write(f"Login sebagai: **{st.session_state.role}**")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.session_state.role = None
+        st.rerun()
+
+    if st.session_state.role == "Owner":
+        dashboard_owner()
+    elif st.session_state.role == "Admin":
+        dashboard_admin()
+    elif st.session_state.role == "Pengawas":
+        dashboard_pengawas()
+    elif st.session_state.role == "Logistik":
+        dashboard_logistik()
+
+    tampilkan_footer_pt()
+    tampilkan_logo_bawah(LOGO_PATH)
