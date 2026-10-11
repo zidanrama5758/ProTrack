@@ -697,27 +697,6 @@ def dashboard_admin():
             st.success(f"✅ PPN diubah menjadi {ppn_baru:.0f}%")
             st.rerun()
 
-    # ==================== TOMBOL BUKA SPREADSHEET ====================
-    st.markdown("")
-    st.markdown(
-        f"""
-        <a href="{SPREADSHEET_URL}" target="_blank" style="
-            display:inline-block;
-            padding:10px 20px;
-            background-color:#2e7d32;
-            color:white;
-            border-radius:8px;
-            text-decoration:none;
-            font-weight:600;
-            font-size:14px;
-            margin-top:8px;">
-            📊 Buka Spreadsheet untuk Edit Langsung
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("Klik tombol di atas untuk membuka Google Sheets. Cocok untuk edit massal atau perbaikan cepat di luar aplikasi.")
-
     st.divider()
 
     # ==================== RAB DETAIL ====================
@@ -891,6 +870,28 @@ def dashboard_admin():
                 )
                 st.success(f"✅ Material '{nama_m}' disimpan!")
                 st.rerun()
+
+    st.divider()
+
+    # ==================== TOMBOL BUKA SPREADSHEET (SETELAH MASTER MATERIAL) ====================
+    st.markdown("")
+    st.markdown(
+        f"""
+        <a href="{SPREADSHEET_URL}" target="_blank" style="
+            display:inline-block;
+            padding:10px 20px;
+            background-color:#2e7d32;
+            color:white;
+            border-radius:8px;
+            text-decoration:none;
+            font-weight:600;
+            font-size:14px;">
+            📊 Buka Spreadsheet untuk Edit Langsung
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption("Klik tombol di atas untuk membuka Google Sheets. Cocok untuk edit massal atau perbaikan cepat di luar aplikasi.")
 
     st.divider()
 
