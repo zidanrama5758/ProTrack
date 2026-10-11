@@ -462,3 +462,172 @@ KODE_AKSES = {
     "Pengawas": "PENGAWAS2026",
     "Logistik": "LOGISTIK2026",
 }
+
+
+# ==================== LOGIN ====================
+def halaman_login():
+    try:
+        with open(LOGO_PROTRACK, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode()
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'style="height:52px; width:auto; display:block;">'
+        )
+    except Exception:
+        logo_html = '<span style="font-size:48px;">🏗️</span>'
+
+    st.markdown(
+        f"""
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:4px;">
+            {logo_html}
+            <h1 style="margin:0; padding:0; font-size:44px; line-height:52px; font-weight:700;">ProTrack</h1>
+        </div>
+        <h3 style="margin-top:12px; font-weight:400;">Project Tracking for Efficient Construction</h3>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.write("")
+    role = st.selectbox("Pilih Peran", ["Owner", "Admin", "Pengawas", "Logistik"])
+    kode = st.text_input("Kode Akses", type="password")
+    if st.button("Masuk"):
+        if kode == KODE_AKSES[role]:
+            st.session_state.role = role
+            st.session_state.logged_in = True
+            st.rerun()
+        else:
+            st.error("Kode akses salah!")
+
+
+# ==================== DASHBOARD OWNER ====================
+def dashboard_owner():
+    st.title("👑 Dashboard Owner")
+
+    df = baca_sheet("proyek")
+    if df.empty:
+        st.info("Belum ada proyek.")
+        return
+
+    daftar_proyek = df["nama"].tolist()
+
+    st.header("📁 Pilih Proyek")
+    opsi = ["📊 Semua Proyek"] + daftar_proyek
+    proyek_pilihan = st.selectbox("Proyek", opsi, key="owner_proyek")
+
+    st.divider()
+
+    if proyek_pilihan == "📊 Semua Proyek":
+        st.header("📊 Ringkasan Semua Proyek")
+
+        realisasi_list = []
+        total_akhir_list = []
+        for nama_p in df["nama"].tolist():
+            realisasi_list.append(hitung_realisasi_proyek(nama_p))
+            _, _, _, total_akhir = hitung_ringkasan_rab(nama_p)
+            total_akhir_list.append(total_akhir)
+
+        df["realisasi"] = realisasi_list
+        df["rab"] = total_akhir_list
+        df["Deviasi"] = df["realisasi"] - df["rab"]
+
+        df_tampil = df.drop(columns=["progres", "ppn"], errors="ignore")
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Proyek", len(df))
+        col2.metric("Total RAB (incl. PPN)", f"Rp {df['rab'].sum():,.0f}")
+        col3.metric("Total Realisasi", f"Rp {df['realisasi'].sum():,.0f}")
+
+        st.header("📋 Semua Proyek")
+        st.dataframe(df_tampil, use_container_width=True)
+
+        st.header("🔔 Alert Deviasi")
+        over = df[df["Deviasi"] > 0]
+        if not over.empty:
+            for _, row in over.iterrows():
+                st.warning(f"⚠️ {row['nama']} over budget Rp {row['Deviasi']:,.0f}!")
+        else:
+            st.success("✅ Semua proyek dalam batas anggaran.")
+    else:
+        st.header(f"📊 Proyek: {proyek_pilihan}")
+
+        total_rab, ppn_persen, nilai_ppn, total_akhir = hitung_ringkasan_rab(proyek_pilihan)
+        realisasi_hitung = hitung_realisasi_proyek(proyek_pilihan)
+        progres_teks = ambil_progres_terbaru(proyek_pilihan)
+
+        st.subheader("💰 Ringkasan RAB")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Item Pekerjaan", f"Rp {total_rab:,.0f}")
+        col2.metric(f"PPN ({ppn_persen:.0f}%)", f"Rp {nilai_ppn:,.0f}")
+        col3.metric("Total Akhir", f"Rp {total_akhir:,.0f}")
+
+        st.subheader("📊 Realisasi & Deviasi")
+        col1, col2 = st.columns(2)
+        col1.metric("Realisasi", f"Rp {realisasi_hitung:,.0f}")
+        col2.metric("Deviasi", f"Rp {realisasi_hitung - total_akhir:,.0f}")
+
+        st.markdown("**Progres Terbaru:**")
+        st.info(progres_teks if progres_teks else "-")
+
+        st.header("📈 Kurva S")
+        df_kurva = baca_sheet("kurva_s")
+        if not df_kurva.empty:
+            df_filter = filter_proyek(df_kurva, proyek_pilihan)
+            if not df_filter.empty:
+                df_filter = df_filter.copy()
+                df_filter["minggu"] = to_angka(df_filter["minggu"])
+                df_filter["rencana"] = to_angka(df_filter["rencana"])
+                df_filter["realisasi"] = to_angka(df_filter["realisasi"])
+                df_filter = df_filter.sort_values("minggu")
+
+                fig, ax = plt.subplots(figsize=(12, 5))
+                ax.plot(df_filter["minggu"], df_filter["rencana"], label="Rencana", color="blue", marker="o")
+                ax.plot(df_filter["minggu"], df_filter["realisasi"], label="Realisasi", color="orange", marker="s")
+                ax.set_xlabel("Minggu")
+                ax.set_ylabel("Bobot (%)")
+                ax.set_title(f"Kurva S - {proyek_pilihan}")
+                ax.legend()
+                ax.grid(True)
+                st.pyplot(fig)
+            else:
+                st.info("Belum ada Kurva S untuk proyek ini.")
+
+        st.header("📝 Laporan Harian Pengawas")
+        df_laporan = baca_sheet("laporan_harian")
+        if not df_laporan.empty:
+            df_filter = filter_proyek(df_laporan, proyek_pilihan)
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} laporan")
+            else:
+                st.info("Belum ada laporan harian.")
+        else:
+            st.info("Belum ada laporan harian.")
+
+        st.header("📦 Riwayat Pembelian Material")
+        df_masuk = baca_sheet("material_masuk")
+        if not df_masuk.empty:
+            df_filter = filter_proyek(df_masuk, proyek_pilihan)
+            if not df_filter.empty:
+                st.dataframe(df_filter, use_container_width=True)
+                st.caption(f"Total: {len(df_filter)} pembelian")
+                if "total" in df_filter.columns:
+                    total_pembelian = to_angka(df_filter["total"]).sum()
+                    st.metric("Total Pembelian", f"Rp {total_pembelian:,.0f}")
+            else:
+                st.info("Belum ada pembelian material untuk proyek ini.")
+        else:
+            st.info("Belum ada pembelian material.")
+
+        st.header("📸 Foto Progres")
+        df_foto = baca_sheet("foto_progres")
+        if not df_foto.empty:
+            df_filter = filter_proyek(df_foto, proyek_pilihan)
+            if not df_filter.empty:
+                for _, row in df_filter.iterrows():
+                    st.markdown(f"**{row['tanggal']}** — {row['keterangan']}")
+                    st.markdown(f"[Lihat Foto]({row['link_foto']})")
+                    st.divider()
+            else:
+                st.info("Belum ada foto untuk proyek ini.")
+        else:
+            st.info("Belum ada foto.")
