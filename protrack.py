@@ -581,21 +581,14 @@ def dashboard_owner():
 
         st.subheader("📊 Realisasi & Deviasi")
         dev_sebelum_ppn = realisasi_hitung - total_rab
-        dev_setelah_ppn = realisasi_hitung - total_akhir
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("Realisasi", f"Rp {realisasi_hitung:,.0f}")
         col2.metric(
             "Deviasi (sebelum PPN)",
             f"Rp {dev_sebelum_ppn:,.0f}",
             delta=f"vs DPP Rp {total_rab:,.0f}",
             delta_color="inverse" if dev_sebelum_ppn > 0 else "normal",
-        )
-        col3.metric(
-            "Deviasi (incl. PPN)",
-            f"Rp {dev_setelah_ppn:,.0f}",
-            delta=f"vs Total Akhir Rp {total_akhir:,.0f}",
-            delta_color="inverse" if dev_setelah_ppn > 0 else "normal",
         )
 
         st.markdown("**Progres Terbaru:**")
@@ -732,20 +725,12 @@ def dashboard_admin():
     st.subheader("📊 Deviasi")
     realisasi_cek = hitung_realisasi_proyek(proyek_pilihan)
     dev_sebelum_ppn = realisasi_cek - total_rab
-    dev_setelah_ppn = realisasi_cek - total_akhir
 
-    col_dev1, col_dev2 = st.columns(2)
-    col_dev1.metric(
+    st.metric(
         "Deviasi (sebelum PPN)",
         f"Rp {dev_sebelum_ppn:,.0f}",
         delta=f"vs DPP Rp {total_rab:,.0f}",
         delta_color="inverse" if dev_sebelum_ppn > 0 else "normal",
-    )
-    col_dev2.metric(
-        "Deviasi (incl. PPN)",
-        f"Rp {dev_setelah_ppn:,.0f}",
-        delta=f"vs Total Akhir Rp {total_akhir:,.0f}",
-        delta_color="inverse" if dev_setelah_ppn > 0 else "normal",
     )
 
     st.divider()
