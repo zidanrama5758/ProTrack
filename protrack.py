@@ -1,16 +1,27 @@
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
-import gspread
-from google.oauth2 import service_account
-import io
-import json
 import base64
-import time
+import io
+from datetime import datetime
+
 import cloudinary
 import cloudinary.uploader
+import matplotlib.pyplot as plt
+import pandas as pd
+import streamlit as st
+
+from db import (
+    baca_rab_detail_bersih,
+    baca_sheet,
+    hapus_by_id,
+    hapus_material,
+    hitung_realisasi_proyek,
+    hitung_total_rab_dari_item,
+    simpan_kurva_banyak,
+    simpan_material_banyak,
+    tambah_banyak,
+    tambah_baris,
+    update_by_id,
+    update_kolom_proyek,
+)
 
 st.set_page_config(
     page_title="ProTrack",
@@ -18,54 +29,11 @@ st.set_page_config(
     page_icon="logo_protrack.png",
 )
 
-conn = st.connection("gsheets", type=GSheetsConnection)
-
 # ==================== KONFIGURASI ====================
-JSON_FILE = "protrack-510911-15c05e7c04aa.json"
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1GmuAk2vSS7K-euw4A719hbN2JOsxDYA4m2kWiGXiuzQ/edit"
 LOGO_PATH = "logo_pt.png"
 LOGO_PROTRACK = "logo_protrack.png"
 
-KOLOM_RAB = ["no", "proyek", "kode", "item_pekerjaan", "satuan", "volume", "harga_satuan", "jumlah_harga"]
-KOLOM_KURVA = ["proyek", "minggu", "rencana", "realisasi"]
-KOLOM_MATERIAL = ["kode", "nama_material", "satuan", "kategori"]
-
 KATA_KUNCI_RINGKASAN = ["jumlah", "total", "ppn", "subtotal", "divisi", "grand"]
-
-# Cache TTL (detik) — baca ulang sheet setiap 30 detik
-TTL_CACHE = 30
-
-
-def get_credentials():
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        return creds_dict
-    else:
-        with open(JSON_FILE, "r") as f:
-            return json.load(f)
-
-
-def get_gspread_client():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds_dict = get_credentials()
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict, scopes=scope
-    )
-    return gspread.authorize(creds)
-
-
-def get_worksheet(nama_sheet):
-    client = get_gspread_client()
-    return client.open_by_url(SPREADSHEET_URL).worksheet(nama_sheet)
-
-
-def tambah_baris_gspread(nama_sheet, baris_baru):
-    ws = get_worksheet(nama_sheet)
-    ws.append_row(list(baris_baru.values()))
 
 
 def upload_foto(file_bytes, file_name):
@@ -77,58 +45,6 @@ def upload_foto(file_bytes, file_name):
     )
     result = cloudinary.uploader.upload(io.BytesIO(file_bytes), public_id=file_name)
     return result["secure_url"]
-
-
-def _retry_baca_sheet(nama_sheet, max_retry=3):
-    """Baca sheet dengan retry backoff kalau kena rate limit."""
-    delay = 1.0
-    for attempt in range(max_retry):
-        try:
-            return conn.read(worksheet=nama_sheet, ttl=TTL_CACHE)
-        except Exception as e:
-            pesan = str(e).lower()
-            if ("429" in pesan or "quota" in pesan or "rate" in pesan) and attempt < max_retry - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            raise
-
-
-def baca_sheet(nama_sheet):
-    df = _retry_baca_sheet(nama_sheet)
-    if df.empty:
-        return df
-    df.columns = [str(c).strip() for c in df.columns]
-    kolom_pertama = df.columns[0]
-    df = df[df[kolom_pertama].astype(str).str.strip().str.lower() != kolom_pertama.lower()]
-    df = df.dropna(how="all")
-    return df.reset_index(drop=True)
-
-
-def baca_rab_detail_bersih():
-    df = _retry_baca_sheet("rab_detail")
-    if df.empty:
-        return df
-    df.columns = [str(c).strip() for c in df.columns]
-
-    if "no" in df.columns:
-        df = df[df["no"].astype(str).str.strip().str.lower() != "no"]
-    if "proyek" in df.columns:
-        df = df[df["proyek"].astype(str).str.strip().str.lower() != "proyek"]
-
-    if "item_pekerjaan" in df.columns:
-        mask_ringkasan = df["item_pekerjaan"].astype(str).str.lower().apply(
-            lambda x: any(k in x for k in KATA_KUNCI_RINGKASAN)
-        )
-        df = df[~mask_ringkasan]
-
-    if "kode" in df.columns and "volume" in df.columns:
-        kode_kosong = df["kode"].astype(str).str.strip().isin(["", "nan", "None"])
-        vol_kosong = df["volume"].astype(str).str.strip().isin(["", "nan", "None"])
-        df = df[~(kode_kosong & vol_kosong)]
-
-    df = df.dropna(how="all")
-    return df.reset_index(drop=True)
 
 
 # ==================== HELPER BRANDING ====================
@@ -219,21 +135,37 @@ def filter_proyek(df, nama_proyek):
 
 
 def to_angka(series):
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors="coerce").fillna(0)
     bersih = series.astype(str).str.replace(r"[^\d.-]", "", regex=True)
     return pd.to_numeric(bersih, errors="coerce").fillna(0)
 
 
+def _s(v):
+    """Teks bersih dari sel Excel (NaN -> kosong)."""
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(v).strip()
+
+
+def _angka(v):
+    try:
+        f = float(v)
+        return 0.0 if f != f else f
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def tanpa_id(df):
+    return df.drop(columns=["id"], errors="ignore")
+
+
 # ==================== HITUNG RAB & PPN ====================
-def hitung_total_rab_dari_item(nama_proyek):
-    df = baca_rab_detail_bersih()
-    if df.empty or "jumlah_harga" not in df.columns:
-        return 0.0
-    df_filter = filter_proyek(df, nama_proyek)
-    if df_filter.empty:
-        return 0.0
-    return float(to_angka(df_filter["jumlah_harga"]).sum())
-
-
 def ambil_ppn_proyek(nama_proyek):
     df = baca_sheet("proyek")
     if df.empty or "ppn" not in df.columns:
@@ -258,56 +190,16 @@ def hitung_ringkasan_rab(nama_proyek):
     return total_rab, ppn_persen, nilai_ppn, total_akhir
 
 
-def update_rab_proyek_di_sheet(nama_proyek):
+def update_rab_proyek(nama_proyek):
     _, _, _, total_akhir = hitung_ringkasan_rab(nama_proyek)
-    ws = get_worksheet("proyek")
-    headers = [h.strip() for h in ws.row_values(1)]
-    if "rab" not in headers:
-        return
-    kol_rab = headers.index("rab") + 1
-    col_nama = ws.col_values(1)
-    target = normalisasi(nama_proyek)
-    for i, val in enumerate(col_nama, start=1):
-        if normalisasi(val) == target:
-            ws.update_cell(i, kol_rab, float(total_akhir))
-            return
+    update_kolom_proyek(nama_proyek, "rab", float(total_akhir))
 
 
-def update_ppn_proyek_di_sheet(nama_proyek, ppn_persen):
-    ws = get_worksheet("proyek")
-    headers = [h.strip() for h in ws.row_values(1)]
-    if "ppn" not in headers:
-        return
-    kol_ppn = headers.index("ppn") + 1
-    col_nama = ws.col_values(1)
-    target = normalisasi(nama_proyek)
-    for i, val in enumerate(col_nama, start=1):
-        if normalisasi(val) == target:
-            ws.update_cell(i, kol_ppn, float(ppn_persen))
-            return
+def update_ppn_proyek(nama_proyek, ppn_persen):
+    update_kolom_proyek(nama_proyek, "ppn", float(ppn_persen))
 
 
-# ==================== HELPER SHEET OPERATIONS ====================
-def cari_baris_proyek(nama_proyek):
-    ws = get_worksheet("proyek")
-    col_nama = ws.col_values(1)
-    target = normalisasi(nama_proyek)
-    for i, val in enumerate(col_nama, start=1):
-        if normalisasi(val) == target:
-            return i
-    return None
-
-
-def hitung_realisasi_proyek(nama_proyek):
-    df = baca_sheet("material_masuk")
-    if df.empty or "total" not in df.columns:
-        return 0.0
-    df_filter = filter_proyek(df, nama_proyek)
-    if df_filter.empty:
-        return 0.0
-    return float(to_angka(df_filter["total"]).sum())
-
-
+# ==================== HELPER DATA ====================
 def ambil_progres_terbaru(nama_proyek):
     df = baca_sheet("laporan_harian")
     if df.empty or "progres" not in df.columns:
@@ -325,43 +217,6 @@ def ambil_progres_terbaru(nama_proyek):
     if pd.isna(nilai) or str(nilai).strip() == "":
         return "-"
     return str(nilai)
-
-
-def cari_baris_rab_by_no(no):
-    ws = get_worksheet("rab_detail")
-    col_no = ws.col_values(1)
-    for i, val in enumerate(col_no, start=1):
-        if str(val).strip() == str(no).strip():
-            return i
-    return None
-
-
-def cari_baris_kurva(nama_proyek, minggu):
-    ws = get_worksheet("kurva_s")
-    semua = ws.get_all_values()
-    target_proyek = normalisasi(nama_proyek)
-    try:
-        target_minggu = str(int(float(minggu)))
-    except Exception:
-        target_minggu = str(minggu).strip()
-    for i, row in enumerate(semua, start=1):
-        if len(row) >= 2:
-            if normalisasi(row[0]) == target_proyek:
-                try:
-                    if str(int(float(row[1]))) == target_minggu:
-                        return i
-                except Exception:
-                    pass
-    return None
-
-
-def cari_baris_material(kode):
-    ws = get_worksheet("material_master")
-    col_kode = ws.col_values(1)
-    for i, val in enumerate(col_kode, start=1):
-        if str(val).strip() == str(kode).strip():
-            return i
-    return None
 
 
 def generate_no_rab(nama_proyek):
@@ -388,85 +243,20 @@ def generate_no_rab(nama_proyek):
     for val in df_filter["no"].astype(str).tolist():
         try:
             if "." in val:
-                urut = int(val.split(".")[-1])
-                nomor_urut.append(urut)
+                nomor_urut.append(int(val.split(".")[-1]))
         except Exception:
             pass
     urut_berikut = max(nomor_urut) + 1 if nomor_urut else 1
     return f"{nomor_proyek}.{urut_berikut}"
 
 
-def tambah_baris_rab_dengan_header(nama_proyek, data_baris):
-    ws = get_worksheet("rab_detail")
-    semua = ws.get_all_values()
-
-    target = normalisasi(nama_proyek)
-    sudah_ada_blok = False
-    for i, row in enumerate(semua):
-        if len(row) >= 2:
-            if str(row[0]).strip().lower() == "no" and str(row[1]).strip().lower() == "proyek":
-                for j in range(i + 1, len(semua)):
-                    r = semua[j]
-                    if len(r) >= 2 and str(r[0]).strip().lower() == "no":
-                        break
-                    if len(r) >= 2 and normalisasi(r[1]) == target:
-                        sudah_ada_blok = True
-                        break
-                if sudah_ada_blok:
-                    break
-
-    if not sudah_ada_blok:
-        if len(semua) > 1:
-            ws.append_row([""] * len(KOLOM_RAB))
-            ws.append_row([""] * len(KOLOM_RAB))
-        else:
-            ws.append_row(KOLOM_RAB)
-        ws.append_row(KOLOM_RAB)
-
-    ws.append_row(data_baris)
-
-
-def tambah_baris_kurva_dengan_header(nama_proyek, data_baris):
-    ws = get_worksheet("kurva_s")
-    semua = ws.get_all_values()
-
-    target = normalisasi(nama_proyek)
-    sudah_ada_blok = False
-    for i, row in enumerate(semua):
-        if len(row) >= 2:
-            if str(row[0]).strip().lower() == "proyek" and str(row[1]).strip().lower() == "minggu":
-                for j in range(i + 1, len(semua)):
-                    r = semua[j]
-                    if len(r) >= 2 and str(r[0]).strip().lower() == "proyek" and str(r[1]).strip().lower() == "minggu":
-                        break
-                    if len(r) >= 2 and normalisasi(r[0]) == target:
-                        sudah_ada_blok = True
-                        break
-                if sudah_ada_blok:
-                    break
-
-    if not sudah_ada_blok:
-        if len(semua) > 1:
-            ws.append_row([""] * len(KOLOM_KURVA))
-            ws.append_row([""] * len(KOLOM_KURVA))
-        else:
-            ws.append_row(KOLOM_KURVA)
-        ws.append_row(KOLOM_KURVA)
-
-    ws.append_row(data_baris)
-
-
-def hapus_baris_sheet(nama_sheet, nomor_baris):
-    ws = get_worksheet(nama_sheet)
-    ws.delete_rows(nomor_baris)
-
-
-def update_baris_sheet(nama_sheet, nomor_baris, data_baris):
-    ws = get_worksheet(nama_sheet)
-    kolom_akhir = len(data_baris)
-    huruf_akhir = chr(64 + kolom_akhir) if kolom_akhir <= 26 else "Z"
-    range_str = f"A{nomor_baris}:{huruf_akhir}{nomor_baris}"
-    ws.update(range_str, [data_baris])
+def mulai_no_rab(nama_proyek):
+    """(nomor_proyek, urutan_berikutnya) -> dipakai untuk penomoran massal saat import."""
+    no = generate_no_rab(nama_proyek)
+    if no is None:
+        return None, 0
+    p, n = no.split(".")
+    return p, int(n)
 
 
 # ==================== SESSION STATE ====================
@@ -475,12 +265,14 @@ if "role" not in st.session_state:
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-KODE_AKSES = {
+# Kode akses: kalau ada [kode_akses] di Secrets, pakai itu. Kalau belum, pakai bawaan lama.
+_KODE_BAWAAN = {
     "Owner": "OWNER2026",
     "Admin": "ADMIN2026",
     "Pengawas": "PENGAWAS2026",
     "Logistik": "LOGISTIK2026",
 }
+KODE_AKSES = dict(st.secrets["kode_akses"]) if "kode_akses" in st.secrets else _KODE_BAWAAN
 
 
 # ==================== LOGIN ====================
@@ -674,19 +466,26 @@ def dashboard_admin():
         ppn = st.number_input("PPN (%)", min_value=0.0, max_value=100.0, value=12.0, step=1.0)
         submit = st.form_submit_button("Tambah Proyek")
         if submit and nama:
-            tambah_baris_gspread(
-                "proyek",
-                {
-                    "nama": nama,
-                    "lokasi": lokasi,
-                    "rab": rab,
-                    "realisasi": 0.0,
-                    "progres": "",
-                    "ppn": ppn,
-                },
-            )
-            st.success(f"✅ Proyek '{nama}' berhasil ditambahkan!")
-            st.rerun()
+            try:
+                tambah_baris(
+                    "proyek",
+                    {
+                        "nama": nama.strip(),
+                        "lokasi": lokasi,
+                        "rab": rab,
+                        "realisasi": 0.0,
+                        "progres": "",
+                        "ppn": ppn,
+                    },
+                )
+            except Exception as e:
+                if "proyek_nama_uq" in str(e) or "duplicate" in str(e).lower():
+                    st.error("Nama proyek itu sudah ada. Pakai nama lain.")
+                else:
+                    st.error(f"Gagal menambah proyek: {e}")
+            else:
+                st.success(f"✅ Proyek '{nama}' berhasil ditambahkan!")
+                st.rerun()
 
     st.divider()
 
@@ -717,8 +516,8 @@ def dashboard_admin():
         )
         submit_ppn = st.form_submit_button("💾 Simpan PPN")
         if submit_ppn:
-            update_ppn_proyek_di_sheet(proyek_pilihan, ppn_baru)
-            update_rab_proyek_di_sheet(proyek_pilihan)
+            update_ppn_proyek(proyek_pilihan, ppn_baru)
+            update_rab_proyek(proyek_pilihan)
             st.success(f"✅ PPN diubah menjadi {ppn_baru:.0f}%")
             st.rerun()
 
@@ -735,6 +534,7 @@ def dashboard_admin():
 
     st.divider()
 
+    # ---------- RAB DETAIL ----------
     st.header("📥 Upload RAB Detail")
     st.caption("Format Excel: kolom `kode`, `item_pekerjaan`, `satuan`, `volume`, `harga_satuan`, `jumlah_harga`")
     file_rab = st.file_uploader(
@@ -752,31 +552,35 @@ def dashboard_admin():
             st.dataframe(df_rab.head(10), use_container_width=True)
             st.caption(f"Total baris: {len(df_rab)}")
             if st.button("📥 Import RAB Detail ke Proyek Ini"):
-                jumlah_masuk = 0
-                for _, row in df_rab.iterrows():
-                    item_str = str(row.get("item_pekerjaan", "")).lower()
-                    if any(k in item_str for k in KATA_KUNCI_RINGKASAN):
-                        continue
-                    kode_val = str(row.get("kode", "")).strip()
-                    vol_val = str(row.get("volume", "")).strip()
-                    if not kode_val and not vol_val:
-                        continue
-                    no_auto = generate_no_rab(proyek_pilihan)
-                    data = [
-                        no_auto,
-                        proyek_pilihan,
-                        row.get("kode", ""),
-                        row.get("item_pekerjaan", ""),
-                        row.get("satuan", ""),
-                        row.get("volume", 0),
-                        row.get("harga_satuan", 0),
-                        row.get("jumlah_harga", 0),
-                    ]
-                    tambah_baris_rab_dengan_header(proyek_pilihan, data)
-                    jumlah_masuk += 1
-                update_rab_proyek_di_sheet(proyek_pilihan)
-                st.success(f"✅ {jumlah_masuk} baris RAB detail berhasil diimport!")
-                st.rerun()
+                p, n = mulai_no_rab(proyek_pilihan)
+                if p is None:
+                    st.error("Proyek tidak ditemukan.")
+                else:
+                    rows = []
+                    for _, row in df_rab.iterrows():
+                        item_str = _s(row.get("item_pekerjaan", "")).lower()
+                        if any(k in item_str for k in KATA_KUNCI_RINGKASAN):
+                            continue
+                        kode_val = _s(row.get("kode", ""))
+                        vol_val = _s(row.get("volume", ""))
+                        if not kode_val and not vol_val:
+                            continue
+                        rows.append(
+                            {
+                                "no": f"{p}.{n}",
+                                "kode": kode_val,
+                                "item_pekerjaan": _s(row.get("item_pekerjaan", "")),
+                                "satuan": _s(row.get("satuan", "")),
+                                "volume": _angka(row.get("volume", 0)),
+                                "harga_satuan": _angka(row.get("harga_satuan", 0)),
+                                "jumlah_harga": _angka(row.get("jumlah_harga", 0)),
+                            }
+                        )
+                        n += 1
+                    jumlah_masuk = tambah_banyak("rab_detail", rows, nama_proyek=proyek_pilihan)
+                    update_rab_proyek(proyek_pilihan)
+                    st.success(f"✅ {jumlah_masuk} baris RAB detail berhasil diimport!")
+                    st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
 
@@ -790,24 +594,26 @@ def dashboard_admin():
             submit_rab = st.form_submit_button("📤 Simpan RAB")
             if submit_rab:
                 no_auto = generate_no_rab(proyek_pilihan)
-                jumlah = volume_rab * harga_rab
-                data = [
-                    no_auto,
-                    proyek_pilihan,
-                    kode_rab,
-                    item_rab,
-                    satuan_rab,
-                    volume_rab,
-                    harga_rab,
-                    jumlah,
-                ]
-                tambah_baris_rab_dengan_header(proyek_pilihan, data)
-                update_rab_proyek_di_sheet(proyek_pilihan)
+                tambah_baris(
+                    "rab_detail",
+                    {
+                        "no": no_auto,
+                        "proyek": proyek_pilihan,
+                        "kode": kode_rab,
+                        "item_pekerjaan": item_rab,
+                        "satuan": satuan_rab,
+                        "volume": volume_rab,
+                        "harga_satuan": harga_rab,
+                        "jumlah_harga": volume_rab * harga_rab,
+                    },
+                )
+                update_rab_proyek(proyek_pilihan)
                 st.success(f"✅ RAB '{item_rab}' (no {no_auto}) disimpan!")
                 st.rerun()
 
     st.divider()
 
+    # ---------- KURVA S ----------
     st.header("📥 Upload Kurva S")
     st.caption("Format Excel: kolom `minggu`, `rencana`, `realisasi`")
     file_kurva = st.file_uploader(
@@ -825,15 +631,17 @@ def dashboard_admin():
             st.dataframe(df_kurva.head(10), use_container_width=True)
             st.caption(f"Total baris: {len(df_kurva)}")
             if st.button("📥 Import Kurva S ke Proyek Ini"):
-                for _, row in df_kurva.iterrows():
-                    data = [
-                        proyek_pilihan,
-                        int(row["minggu"]),
-                        row.get("rencana", 0),
-                        row.get("realisasi", 0),
-                    ]
-                    tambah_baris_kurva_dengan_header(proyek_pilihan, data)
-                st.success(f"✅ {len(df_kurva)} baris Kurva S berhasil diimport!")
+                rows = [
+                    {
+                        "minggu": int(row["minggu"]),
+                        "rencana": _angka(row.get("rencana", 0)),
+                        "realisasi": _angka(row.get("realisasi", 0)),
+                    }
+                    for _, row in df_kurva.iterrows()
+                    if not pd.isna(row.get("minggu"))
+                ]
+                jumlah = simpan_kurva_banyak(proyek_pilihan, rows)
+                st.success(f"✅ {jumlah} baris Kurva S berhasil diimport!")
                 st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
@@ -845,13 +653,16 @@ def dashboard_admin():
             realisasi_k = st.number_input("Realisasi (%)", min_value=0.0)
             submit_k = st.form_submit_button("📤 Simpan Kurva S")
             if submit_k:
-                data = [proyek_pilihan, int(minggu_k), rencana_k, realisasi_k]
-                tambah_baris_kurva_dengan_header(proyek_pilihan, data)
+                simpan_kurva_banyak(
+                    proyek_pilihan,
+                    [{"minggu": int(minggu_k), "rencana": rencana_k, "realisasi": realisasi_k}],
+                )
                 st.success(f"✅ Kurva S minggu {int(minggu_k)} disimpan!")
                 st.rerun()
 
     st.divider()
 
+    # ---------- MASTER MATERIAL ----------
     st.header("📥 Upload Master Material (Global)")
     st.caption("Format Excel: kolom `kode`, `nama_material`, `satuan`, `kategori`")
     file_mat = st.file_uploader(
@@ -869,17 +680,18 @@ def dashboard_admin():
             st.dataframe(df_mat.head(10), use_container_width=True)
             st.caption(f"Total baris: {len(df_mat)}")
             if st.button("📥 Import Master Material"):
-                for _, row in df_mat.iterrows():
-                    tambah_baris_gspread(
-                        "material_master",
-                        {
-                            "kode": row["kode"],
-                            "nama_material": row["nama_material"],
-                            "satuan": row["satuan"],
-                            "kategori": row["kategori"],
-                        },
-                    )
-                st.success(f"✅ {len(df_mat)} baris Master Material diimport!")
+                rows = [
+                    {
+                        "kode": _s(row["kode"]),
+                        "nama_material": _s(row["nama_material"]),
+                        "satuan": _s(row["satuan"]),
+                        "kategori": _s(row["kategori"]),
+                    }
+                    for _, row in df_mat.iterrows()
+                    if _s(row["kode"])
+                ]
+                jumlah = simpan_material_banyak(rows)
+                st.success(f"✅ {jumlah} baris Master Material diimport! (kode yang sama otomatis diperbarui)")
                 st.rerun()
         except Exception as e:
             st.error(f"Error: {e}")
@@ -891,42 +703,17 @@ def dashboard_admin():
             satuan_m = st.text_input("Satuan")
             kategori_m = st.text_input("Kategori")
             submit_m = st.form_submit_button("📤 Simpan Material")
-            if submit_m:
-                tambah_baris_gspread(
-                    "material_master",
-                    {
-                        "kode": kode_m,
-                        "nama_material": nama_m,
-                        "satuan": satuan_m,
-                        "kategori": kategori_m,
-                    },
+            if submit_m and kode_m.strip():
+                simpan_material_banyak(
+                    [{"kode": kode_m.strip(), "nama_material": nama_m,
+                      "satuan": satuan_m, "kategori": kategori_m}]
                 )
                 st.success(f"✅ Material '{nama_m}' disimpan!")
                 st.rerun()
 
     st.divider()
 
-    st.markdown("")
-    st.markdown(
-        f"""
-        <a href="{SPREADSHEET_URL}" target="_blank" style="
-            display:inline-block;
-            padding:10px 20px;
-            background-color:#2e7d32;
-            color:white;
-            border-radius:8px;
-            text-decoration:none;
-            font-weight:600;
-            font-size:14px;">
-            📊 Buka Spreadsheet untuk Edit Langsung
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.caption("Klik tombol di atas untuk membuka Google Sheets. Cocok untuk edit massal atau perbaikan cepat di luar aplikasi.")
-
-    st.divider()
-
+    # ---------- DATA PROYEK ----------
     st.header(f"📋 Data Proyek: {proyek_pilihan}")
 
     with st.expander("📋 RAB Detail"):
@@ -934,48 +721,58 @@ def dashboard_admin():
         if not df_rab_all.empty:
             df_filter = filter_proyek(df_rab_all, proyek_pilihan)
             if not df_filter.empty:
-                st.dataframe(df_filter, use_container_width=True)
+                st.dataframe(tanpa_id(df_filter), use_container_width=True)
                 st.caption(f"Total: {len(df_filter)} baris")
 
                 st.markdown("**Edit / Hapus RAB Detail**")
-                no_pilihan = st.selectbox(
-                    "Pilih 'no' baris yang mau diedit/dihapus",
-                    df_filter["no"].astype(str).tolist(),
-                    key="edit_rab_no",
+                label_rab = {
+                    int(r["id"]): f"{r['no']} — {r['item_pekerjaan']}"
+                    for _, r in df_filter.iterrows()
+                }
+                id_pilihan = st.selectbox(
+                    "Pilih baris yang mau diedit/dihapus",
+                    list(label_rab.keys()),
+                    format_func=lambda i: label_rab[i],
+                    key="edit_rab_id",
                 )
                 col_edit, col_hapus = st.columns(2)
                 with col_edit:
                     if st.button("✏️ Edit Baris Ini", key="btn_edit_rab"):
-                        st.session_state["edit_rab_aktif"] = no_pilihan
+                        st.session_state["edit_rab_aktif"] = id_pilihan
                 with col_hapus:
                     if st.button("🗑️ Hapus Baris Ini", key="btn_hapus_rab"):
-                        baris = cari_baris_rab_by_no(no_pilihan)
-                        if baris:
-                            hapus_baris_sheet("rab_detail", baris)
-                            update_rab_proyek_di_sheet(proyek_pilihan)
-                            st.success(f"✅ Baris {no_pilihan} dihapus.")
-                            st.rerun()
+                        hapus_by_id("rab_detail", id_pilihan)
+                        update_rab_proyek(proyek_pilihan)
+                        st.success("✅ Baris dihapus.")
+                        st.rerun()
 
-                if st.session_state.get("edit_rab_aktif") == no_pilihan:
-                    row_edit = df_filter[df_filter["no"].astype(str) == no_pilihan].iloc[0]
+                if st.session_state.get("edit_rab_aktif") == id_pilihan:
+                    row_edit = df_filter[df_filter["id"] == id_pilihan].iloc[0]
                     with st.form("form_edit_rab"):
-                        st.markdown(f"**Edit RAB - no {no_pilihan}**")
-                        kode_e = st.text_input("Kode", value=str(row_edit.get("kode", "")))
-                        item_e = st.text_input("Item Pekerjaan", value=str(row_edit.get("item_pekerjaan", "")))
-                        satuan_e = st.text_input("Satuan", value=str(row_edit.get("satuan", "")))
-                        volume_e = st.number_input("Volume", min_value=0.0, value=float(to_angka(pd.Series([row_edit.get("volume", 0)])).iloc[0]))
-                        harga_e = st.number_input("Harga Satuan", min_value=0.0, value=float(to_angka(pd.Series([row_edit.get("harga_satuan", 0)])).iloc[0]))
+                        st.markdown(f"**Edit RAB - no {row_edit['no']}**")
+                        kode_e = st.text_input("Kode", value=_s(row_edit.get("kode", "")))
+                        item_e = st.text_input("Item Pekerjaan", value=_s(row_edit.get("item_pekerjaan", "")))
+                        satuan_e = st.text_input("Satuan", value=_s(row_edit.get("satuan", "")))
+                        volume_e = st.number_input("Volume", min_value=0.0, value=_angka(row_edit.get("volume", 0)))
+                        harga_e = st.number_input("Harga Satuan", min_value=0.0, value=_angka(row_edit.get("harga_satuan", 0)))
                         submit_edit = st.form_submit_button("💾 Simpan Perubahan")
                         if submit_edit:
-                            jumlah_e = volume_e * harga_e
-                            data_baru = [no_pilihan, proyek_pilihan, kode_e, item_e, satuan_e, volume_e, harga_e, jumlah_e]
-                            baris = cari_baris_rab_by_no(no_pilihan)
-                            if baris:
-                                update_baris_sheet("rab_detail", baris, data_baru)
-                                update_rab_proyek_di_sheet(proyek_pilihan)
-                                st.session_state["edit_rab_aktif"] = None
-                                st.success(f"✅ Baris {no_pilihan} diupdate.")
-                                st.rerun()
+                            update_by_id(
+                                "rab_detail",
+                                id_pilihan,
+                                {
+                                    "kode": kode_e,
+                                    "item_pekerjaan": item_e,
+                                    "satuan": satuan_e,
+                                    "volume": volume_e,
+                                    "harga_satuan": harga_e,
+                                    "jumlah_harga": volume_e * harga_e,
+                                },
+                            )
+                            update_rab_proyek(proyek_pilihan)
+                            st.session_state["edit_rab_aktif"] = None
+                            st.success("✅ Baris diupdate.")
+                            st.rerun()
             else:
                 st.info("Belum ada RAB detail untuk proyek ini.")
         else:
@@ -991,7 +788,7 @@ def dashboard_admin():
                 df_filter["rencana"] = to_angka(df_filter["rencana"])
                 df_filter["realisasi"] = to_angka(df_filter["realisasi"])
                 df_filter = df_filter.sort_values("minggu")
-                st.dataframe(df_filter, use_container_width=True)
+                st.dataframe(tanpa_id(df_filter), use_container_width=True)
                 st.caption(f"Total: {len(df_filter)} baris")
 
                 fig2, ax2 = plt.subplots(figsize=(10, 4))
@@ -1004,36 +801,39 @@ def dashboard_admin():
                 st.pyplot(fig2)
 
                 st.markdown("**Edit / Hapus Kurva S**")
-                opsi_kurva = [f"Minggu {int(m)}" for m in df_filter["minggu"].tolist()]
-                pilih_kurva = st.selectbox("Pilih baris Kurva S", opsi_kurva, key="edit_kurva_sel")
-                minggu_pilih = int(pilih_kurva.replace("Minggu ", ""))
+                label_kurva = {
+                    int(r["id"]): f"Minggu {int(r['minggu'])}"
+                    for _, r in df_filter.iterrows()
+                }
+                id_kurva = st.selectbox(
+                    "Pilih baris Kurva S",
+                    list(label_kurva.keys()),
+                    format_func=lambda i: label_kurva[i],
+                    key="edit_kurva_sel",
+                )
 
                 col_e, col_h = st.columns(2)
                 with col_e:
                     if st.button("✏️ Edit Kurva S", key="btn_edit_kurva"):
-                        st.session_state["edit_kurva_aktif"] = minggu_pilih
+                        st.session_state["edit_kurva_aktif"] = id_kurva
                 with col_h:
                     if st.button("🗑️ Hapus Kurva S", key="btn_hapus_kurva"):
-                        baris = cari_baris_kurva(proyek_pilihan, minggu_pilih)
-                        if baris:
-                            hapus_baris_sheet("kurva_s", baris)
-                            st.success(f"✅ Kurva S minggu {minggu_pilih} dihapus.")
-                            st.rerun()
+                        hapus_by_id("kurva_s", id_kurva)
+                        st.success("✅ Kurva S dihapus.")
+                        st.rerun()
 
-                if st.session_state.get("edit_kurva_aktif") == minggu_pilih:
-                    row_k = df_filter[df_filter["minggu"] == minggu_pilih].iloc[0]
+                if st.session_state.get("edit_kurva_aktif") == id_kurva:
+                    row_k = df_filter[df_filter["id"] == id_kurva].iloc[0]
                     with st.form("form_edit_kurva"):
-                        st.markdown(f"**Edit Kurva S - Minggu {minggu_pilih}**")
-                        rencana_e = st.number_input("Rencana (%)", min_value=0.0, value=float(row_k["rencana"]))
-                        realisasi_e = st.number_input("Realisasi (%)", min_value=0.0, value=float(row_k["realisasi"]))
+                        st.markdown(f"**Edit Kurva S - {label_kurva[id_kurva]}**")
+                        rencana_e = st.number_input("Rencana (%)", min_value=0.0, value=_angka(row_k["rencana"]))
+                        realisasi_e = st.number_input("Realisasi (%)", min_value=0.0, value=_angka(row_k["realisasi"]))
                         submit_ek = st.form_submit_button("💾 Simpan Perubahan")
                         if submit_ek:
-                            baris = cari_baris_kurva(proyek_pilihan, minggu_pilih)
-                            if baris:
-                                update_baris_sheet("kurva_s", baris, [proyek_pilihan, minggu_pilih, rencana_e, realisasi_e])
-                                st.session_state["edit_kurva_aktif"] = None
-                                st.success(f"✅ Kurva S minggu {minggu_pilih} diupdate.")
-                                st.rerun()
+                            update_by_id("kurva_s", id_kurva, {"rencana": rencana_e, "realisasi": realisasi_e})
+                            st.session_state["edit_kurva_aktif"] = None
+                            st.success("✅ Kurva S diupdate.")
+                            st.rerun()
             else:
                 st.info("Belum ada Kurva S untuk proyek ini.")
         else:
@@ -1046,7 +846,11 @@ def dashboard_admin():
             st.caption(f"Total: {len(df_master_all)} material")
 
             st.markdown("**Edit / Hapus Master Material**")
-            kode_pilih = st.selectbox("Pilih kode material", df_master_all["kode"].astype(str).tolist(), key="edit_mat_sel")
+            kode_pilih = st.selectbox(
+                "Pilih kode material",
+                df_master_all["kode"].astype(str).tolist(),
+                key="edit_mat_sel",
+            )
 
             col_e, col_h = st.columns(2)
             with col_e:
@@ -1054,27 +858,26 @@ def dashboard_admin():
                     st.session_state["edit_mat_aktif"] = kode_pilih
             with col_h:
                 if st.button("🗑️ Hapus Material", key="btn_hapus_mat"):
-                    baris = cari_baris_material(kode_pilih)
-                    if baris:
-                        hapus_baris_sheet("material_master", baris)
-                        st.success(f"✅ Material {kode_pilih} dihapus.")
-                        st.rerun()
+                    hapus_material(kode_pilih)
+                    st.success(f"✅ Material {kode_pilih} dihapus.")
+                    st.rerun()
 
             if st.session_state.get("edit_mat_aktif") == kode_pilih:
                 row_m = df_master_all[df_master_all["kode"].astype(str) == kode_pilih].iloc[0]
                 with st.form("form_edit_mat"):
                     st.markdown(f"**Edit Material - kode {kode_pilih}**")
-                    nama_e = st.text_input("Nama Material", value=str(row_m.get("nama_material", "")))
-                    satuan_e = st.text_input("Satuan", value=str(row_m.get("satuan", "")))
-                    kategori_e = st.text_input("Kategori", value=str(row_m.get("kategori", "")))
+                    nama_e = st.text_input("Nama Material", value=_s(row_m.get("nama_material", "")))
+                    satuan_e = st.text_input("Satuan", value=_s(row_m.get("satuan", "")))
+                    kategori_e = st.text_input("Kategori", value=_s(row_m.get("kategori", "")))
                     submit_em = st.form_submit_button("💾 Simpan Perubahan")
                     if submit_em:
-                        baris = cari_baris_material(kode_pilih)
-                        if baris:
-                            update_baris_sheet("material_master", baris, [kode_pilih, nama_e, satuan_e, kategori_e])
-                            st.session_state["edit_mat_aktif"] = None
-                            st.success(f"✅ Material {kode_pilih} diupdate.")
-                            st.rerun()
+                        simpan_material_banyak(
+                            [{"kode": kode_pilih, "nama_material": nama_e,
+                              "satuan": satuan_e, "kategori": kategori_e}]
+                        )
+                        st.session_state["edit_mat_aktif"] = None
+                        st.success(f"✅ Material {kode_pilih} diupdate.")
+                        st.rerun()
         else:
             st.info("Belum ada master material.")
 
@@ -1105,7 +908,7 @@ def dashboard_pengawas():
         cuaca = st.selectbox("Cuaca", ["Cerah", "Berawan", "Hujan"])
         submit = st.form_submit_button("📤 Kirim Laporan")
         if submit:
-            tambah_baris_gspread(
+            tambah_baris(
                 "laporan_harian",
                 {
                     "tanggal": str(tanggal),
@@ -1149,7 +952,7 @@ def dashboard_pengawas():
                         .replace("_", "-")
                     )
                     link_foto = upload_foto(file_bytes, file_name)
-                    tambah_baris_gspread(
+                    tambah_baris(
                         "foto_progres",
                         {
                             "tanggal": str(tanggal_foto),
@@ -1247,7 +1050,7 @@ def dashboard_logistik():
             nama_material = row_master["nama_material"]
             satuan = row_master["satuan"]
             total = jumlah * harga_satuan
-            tambah_baris_gspread(
+            tambah_baris(
                 "material_masuk",
                 {
                     "tanggal": str(tanggal),
@@ -1262,14 +1065,9 @@ def dashboard_logistik():
                     "supplier": supplier,
                 },
             )
-            total_realisasi = hitung_realisasi_proyek(proyek_pilihan)
-            ws = get_worksheet("proyek")
-            headers = [h.strip() for h in ws.row_values(1)]
-            if "realisasi" in headers:
-                baris_p = cari_baris_proyek(proyek_pilihan)
-                if baris_p:
-                    kol_r = headers.index("realisasi") + 1
-                    ws.update_cell(baris_p, kol_r, float(total_realisasi))
+            update_kolom_proyek(
+                proyek_pilihan, "realisasi", float(hitung_realisasi_proyek(proyek_pilihan))
+            )
             st.success("✅ Data pembelian berhasil disimpan!")
             st.rerun()
 
